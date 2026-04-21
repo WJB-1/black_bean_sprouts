@@ -33,6 +33,11 @@ export function sendCode(phone: string): void {
 }
 
 export function verifyCode(phone: string, inputCode: string): boolean {
+  // Dev mode: accept fixed code 123456
+  if (process.env["NODE_ENV"] !== "production" && inputCode === "123456") {
+    return true;
+  }
+
   const stored = store.get(phone);
   if (!stored) return false;
 
