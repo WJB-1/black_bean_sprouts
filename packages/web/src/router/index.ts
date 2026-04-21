@@ -9,9 +9,42 @@ const routes = [
   },
   {
     path: "/",
-    name: "home",
-    component: () => import("../pages/HomePage.vue"),
+    redirect: "/documents",
+  },
+  {
+    path: "/documents",
+    name: "documents",
+    component: () => import("../pages/DocumentListPage.vue"),
     meta: { auth: true },
+  },
+  {
+    path: "/documents/:id",
+    name: "document-edit",
+    component: () => import("../pages/DocumentEditPage.vue"),
+    meta: { auth: true },
+  },
+  {
+    path: "/admin",
+    component: () => import("../pages/admin/AdminLayout.vue"),
+    meta: { auth: true },
+    children: [
+      { path: "", redirect: "/admin/style-profiles" },
+      {
+        path: "style-profiles",
+        name: "style-profiles",
+        component: () => import("../pages/admin/StyleProfileList.vue"),
+      },
+      {
+        path: "doc-types",
+        name: "doc-types",
+        component: () => import("../pages/admin/DocTypeList.vue"),
+      },
+      {
+        path: "skills",
+        name: "skills",
+        component: () => import("../pages/admin/SkillList.vue"),
+      },
+    ],
   },
 ];
 
@@ -26,7 +59,7 @@ router.beforeEach((to) => {
     return { name: "login" };
   }
   if (to.meta["guest"] && token) {
-    return { name: "home" };
+    return { name: "documents" };
   }
 });
 

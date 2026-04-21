@@ -7,6 +7,8 @@ import registerCors from "./plugins/cors.js";
 import registerAuth from "./plugins/auth.js";
 import authRoutes from "./routes/auth/index.js";
 import agentRoutes from "./routes/agent/index.js";
+import documentRoutes from "./routes/document/index.js";
+import renderRoutes from "./routes/document/render.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const env = loadEnv();
@@ -19,6 +21,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Routes
   await fastify.register(authRoutes, { prefix: "/api/auth" });
   await fastify.register(agentRoutes, { prefix: "/api/agent" });
+  await fastify.register(documentRoutes, { prefix: "/api/documents" });
+  await fastify.register(renderRoutes, { prefix: "/api/documents" });
 
   // Error handler
   fastify.setErrorHandler((error: FastifyError, _request, reply) => {

@@ -174,6 +174,15 @@ pnpm dev:web                  # 前端开发模式
 - 一个 commit 做一件事
 - 不要 commit `dist/`、`node_modules/`、`.env`、`.claude/`
 
+## 网络代理
+
+当 git push 或外部网络请求失败时，使用本地 VPN 代理：
+```bash
+export https_proxy=http://127.0.0.1:63564
+export http_proxy=http://127.0.0.1:63564
+```
+- 不要 commit `dist/`、`node_modules/`、`.env`、`.claude/`
+
 ## 阶段完成标准 (Phase Completion Criteria)
 
 **一个阶段"做完"的定义不是"代码写完"，而是"全部检查通过"。**

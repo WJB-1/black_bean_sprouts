@@ -8,80 +8,49 @@
 |-------|------|------|-----------|-------|---------|
 | 0 | AST Schema 定义 | DONE | PASS | PASS | PASS |
 | 1 | Monorepo 骨架 | DONE | PASS | PASS | PASS |
-| 2 | 认证模块 | DONE | PASS | PASS | PASS (server 启动正常) |
-| 3 | 文档引擎 | DONE | PASS | PASS | PASS (渲染 8599 bytes .docx) |
-| 4 | Agent 运行时 | DONE | PASS | PASS | PASS (orchestrator mock 运行正常) |
-| 5 | 前端编辑器 | TODO | — | — | — |
-| 6 | 管理后台 | TODO | — | — | — |
+| 2 | 认证模块 | DONE | PASS | PASS | PASS (server 启动) |
+| 3 | 文档引擎 | DONE | PASS | PASS | PASS (.docx 渲染) |
+| 4 | Agent 运行时 | DONE | PASS | PASS | PASS (orchestrator) |
+| 5 | 前端编辑器 | DONE | PASS | PASS | PASS (vite build) |
+| 6 | 管理后台 | DONE | PASS | PASS | PASS (vite build) |
+| 7 | 最终集成 | DONE | PASS | PASS | PASS (全链路) |
 
 ## 功能验证结果
 
 ### doc-schema
-- 构造完整 Doc AST (含 section, paragraph, figure, table, reference)
-- TypeBox + AJV 校验通过: **PASS**
+- 构造完整 Doc AST → TypeBox + AJV 校验: **PASS**
 
 ### doc-engine
-- 最小 AST → DocxRenderer.render() → 8599 bytes .docx
-- ZIP magic bytes (PK) 验证: **PASS**
+- 最小 AST → DocxRenderer → 8599 bytes valid .docx: **PASS**
 
 ### agent-runtime
-- Mock LLMProvider + ToolRegistry + AgentOrchestrator
-- 产出 events: message_delta, done
-- **PASS**
+- Mock LLM + ToolRegistry + Orchestrator → message_delta + done events: **PASS**
 
-### server + web
-- Server: 启动成功, 监听 port 4000
-- Web: Vite build 成功 (2808 modules, 2.20s, dist/ 产出 index.html + assets)
-- **PASS**
+### server
+- 启动成功 port 4000, auth + agent + document 路由: **PASS**
+
+### web
+- Vite build: 2808 modules → dist/ 产出完整: **PASS**
 
 ## 已完成文件统计
 
-### packages/doc-schema (48 files + 1 test)
-- version, base, doc, meta (4 核心文件)
-- inline/ (6): text, citation-ref, xref, inline-formula, footnote-ref, index
-- block/ (14): section, paragraph, figure, table, formula, cover, abstract, toc, acknowledgements, declaration, appendix, ref-list-placeholder, page-break, index
-- resource/ (5): person, reference, asset-ref, footnote, index
-- style/ (11): profile, fonts, numbering, section-style, paragraph-style, figure-style, table-style, abstract-style, cover-style, citation-style, index
-- patch/ (2): types, index
-- schemas/ (6): doc-schema, block-schemas, inline-schemas, resource-schemas, style-schemas, validators
-- tests/ (1): schema-test
+### packages/doc-schema (48 + 1 test)
+- core (4): version, base, doc, meta
+- inline/ (6), block/ (14), resource/ (5), style/ (11), patch/ (2), schemas/ (6)
 
-### packages/doc-engine (19 files + 1 test)
-- renderer/ (5): types, inline-renderer, block-renderer, docx-renderer, index
-- style-resolver/ (4): defaults, merge, resolver, index
-- citation/ (3): types, formatter, index
-- numbering/ (3): types, resolver, index
-- worker/ (3): types, render-worker, index
-- tests/ (1): render-test
+### packages/doc-engine (19 + 1 test)
+- renderer/ (5), style-resolver/ (4), citation/ (3), numbering/ (3), worker/ (3)
 
-### packages/agent-runtime (20 files + 1 test)
-- types, working-memory, observer, llm-router (4)
-- tools/ (6): types, registry, patch-document, query-document, render-document, index
-- llm/ (3): types, openai-compat, index
-- orchestrator/ (3): types, orchestrator, index
-- skills/ (3): types, thesis, index
-- tests/ (1): orchestrator-test
+### packages/agent-runtime (20 + 1 test)
+- core (4), tools/ (6), llm/ (3), orchestrator/ (3), skills/ (3)
 
-### packages/server (16 files)
-- env, app, index (3)
-- lib/ (3): prisma, errors, token
-- plugins/ (2): auth, cors
-- services/ (2): sms, user
-- routes/auth/ (4): sms, wechat, me, index
-- routes/agent/ (3): chat, session, index
+### packages/server (20)
+- core (3), lib/ (3), plugins/ (2), services/ (3), routes/auth/ (4), routes/agent/ (3), routes/document/ (3)
 
-### packages/web (8 files + dist/)
-- lib/ (2): token, api
-- stores/ (1): auth
-- router/ (1): index
-- pages/ (2): LoginPage, HomePage
-- components/ (1): SmsForm
+### packages/web (19)
+- lib/ (2), stores/ (2), router/ (1), pages/ (7), components/ (5), renderers/ (6)
 
 ### 基础设施
-- prisma/schema.prisma (9 models, 4 enums)
-- docker-compose.yml (PostgreSQL + Redis + MinIO)
-- .env.example / .env
+- prisma/schema.prisma, docker-compose.yml, .env.example
 
-## 下一步
-1. Phase 5: 前端 Tiptap 编辑器 + Agent 对话面板
-2. Phase 6: 管理后台 + 打磨
+## 总文件数: ~110+ 源文件
