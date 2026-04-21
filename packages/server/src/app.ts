@@ -6,6 +6,7 @@ import { AppError } from "./lib/errors.js";
 import registerCors from "./plugins/cors.js";
 import registerAuth from "./plugins/auth.js";
 import authRoutes from "./routes/auth/index.js";
+import agentRoutes from "./routes/agent/index.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const env = loadEnv();
@@ -17,6 +18,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Routes
   await fastify.register(authRoutes, { prefix: "/api/auth" });
+  await fastify.register(agentRoutes, { prefix: "/api/agent" });
 
   // Error handler
   fastify.setErrorHandler((error: FastifyError, _request, reply) => {
