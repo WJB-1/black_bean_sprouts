@@ -54,6 +54,7 @@ model Document {
   docType        DocType    @relation(fields: [docTypeId], references: [id])
   styleProfile   StyleProfile? @relation(fields: [styleProfileId], references: [id])
   renderJobs     RenderJob[]
+  agentSessions  AgentSession[]
 
   @@index([userId])
   @@index([docTypeId])

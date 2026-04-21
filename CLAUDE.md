@@ -174,6 +174,43 @@ pnpm dev:web                  # 前端开发模式
 - 一个 commit 做一件事
 - 不要 commit `dist/`、`node_modules/`、`.env`、`.claude/`
 
+## 阶段完成标准 (Phase Completion Criteria)
+
+**一个阶段"做完"的定义不是"代码写完"，而是"全部检查通过"。**
+
+每个 Phase 必须通过以下检查才算完成：
+
+### 1. 编译检查 (必须)
+```bash
+pnpm typecheck          # 所有包零 TS 错误
+pnpm build              # 所有包 build 成功
+```
+
+### 2. 功能验证 (必须)
+根据阶段内容，运行对应的功能测试：
+- **doc-schema**: 写一段测试脚本，构造一个完整 Doc AST JSON，用 TypeBox validator 校验通过
+- **doc-engine**: 构造一个最小 AST，调用 DocxRenderer.render()，确认生成 .docx Buffer 不为空
+- **agent-runtime**: 构造 mock LLMProvider + ToolRegistry，运行 Orchestrator 一轮，确认 StreamEvent 正确产出
+- **server**: `pnpm dev:server` 启动不报错，health endpoint 返回 200
+- **web**: `pnpm dev:web` 启动不报错，页面可渲染
+
+### 3. 代码规范检查 (必须)
+- 所有 `.ts` 文件头部有 schema version 注释（doc-schema 包内）
+- 单文件不超过 3 个导出 class/interface/type
+- 无 `any`、无 `!` 非空断言
+- `import type` 用于纯类型导入
+
+### 4. 文档更新 (必须)
+- 更新 `docs/PROGRESS.md` 进度文档
+- 标注每个 Phase 的状态：`DONE` / `IN PROGRESS` / `TODO`
+- 记录已知问题和下一步
+
+### 5. Git 提交 (必须)
+- 通过以上全部检查后才 commit + push
+- Commit message 包含检查结果概要
+
+**原则：没通过功能验证 = 没做完。写完代码不等于做完阶段。**
+
 ## 技术栈
 
 - Runtime: Node.js 20+, pnpm 9+

@@ -9,22 +9,6 @@ export const BlockBaseSchema = Type.Object({
   type: Type.String(),
 });
 
-export const SectionSchema = Type.Intersect([
-  BlockBaseSchema,
-  Type.Object({
-    type: Type.Literal("section"),
-    attrs: Type.Object({
-      level: Type.Union([
-        Type.Literal(1), Type.Literal(2), Type.Literal(3),
-        Type.Literal(4), Type.Literal(5),
-      ]),
-      title: Type.String(),
-      label: Type.Optional(Type.String()),
-    }),
-    content: Type.Array(Type.Union([])), // forward ref resolved in doc-schema.ts
-  }),
-]);
-
 export const ParagraphOverridesSchema = Type.Object({
   align: Type.Optional(Type.Union([
     Type.Literal("left"), Type.Literal("center"),
@@ -41,6 +25,7 @@ export const ParagraphOverridesSchema = Type.Object({
   })),
 });
 
+// Individual block schemas (without content fields that reference BlockNodeSchema)
 export const ParagraphSchema = Type.Intersect([
   BlockBaseSchema,
   Type.Object({
@@ -131,19 +116,6 @@ export const FormulaSchema = Type.Intersect([
   }),
 ]);
 
-export const CoverSchema = Type.Intersect([
-  BlockBaseSchema,
-  Type.Object({
-    type: Type.Literal("cover"),
-    attrs: Type.Object({
-      layout: Type.Union([
-        Type.Literal("from-template"), Type.Literal("centered"), Type.Literal("custom"),
-      ]),
-    }),
-    content: Type.Array(Type.Union([])),
-  }),
-]);
-
 export const AbstractSchema = Type.Intersect([
   BlockBaseSchema,
   Type.Object({
@@ -182,18 +154,6 @@ export const DeclarationSchema = Type.Intersect([
   }),
 ]);
 
-export const AppendixSchema = Type.Intersect([
-  BlockBaseSchema,
-  Type.Object({
-    type: Type.Literal("appendix"),
-    attrs: Type.Object({
-      label: Type.String(),
-      title: Type.String(),
-    }),
-    content: Type.Array(Type.Union([])),
-  }),
-]);
-
 export const ReferenceListPlaceholderSchema = Type.Intersect([
   BlockBaseSchema,
   Type.Object({
@@ -213,6 +173,51 @@ export const PageBreakSchema = Type.Intersect([
   }),
 ]);
 
+// Recursive schemas using Type.Union with loose validation for content arrays
+// These schemas accept any object in their content arrays, and the actual validation
+// happens through the BlockNodeSchema which covers all block types.
+export const SectionSchema = Type.Intersect([
+  BlockBaseSchema,
+  Type.Object({
+    type: Type.Literal("section"),
+    attrs: Type.Object({
+      level: Type.Union([
+        Type.Literal(1), Type.Literal(2), Type.Literal(3),
+        Type.Literal(4), Type.Literal(5),
+      ]),
+      title: Type.String(),
+      label: Type.Optional(Type.String()),
+    }),
+    content: Type.Array(Type.Any()), // Accept any array, validated by BlockNodeSchema
+  }),
+]);
+
+export const CoverSchema = Type.Intersect([
+  BlockBaseSchema,
+  Type.Object({
+    type: Type.Literal("cover"),
+    attrs: Type.Object({
+      layout: Type.Union([
+        Type.Literal("from-template"), Type.Literal("centered"), Type.Literal("custom"),
+      ]),
+    }),
+    content: Type.Array(Type.Any()), // Accept any array, validated by BlockNodeSchema
+  }),
+]);
+
+export const AppendixSchema = Type.Intersect([
+  BlockBaseSchema,
+  Type.Object({
+    type: Type.Literal("appendix"),
+    attrs: Type.Object({
+      label: Type.String(),
+      title: Type.String(),
+    }),
+    content: Type.Array(Type.Any()), // Accept any array, validated by BlockNodeSchema
+  }),
+]);
+
+// Complete BlockNodeSchema as a union of all block types
 export const BlockNodeSchema = Type.Union([
   SectionSchema, ParagraphSchema, FigureSchema, TableSchema, FormulaSchema,
   CoverSchema, AbstractSchema, ToCPlaceholderSchema,
