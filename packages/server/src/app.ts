@@ -34,8 +34,20 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     if (error.validation) {
+      // TypeBox validation errors
       void reply.status(400).send({
-        error: { code: "VALIDATION_ERROR", message: error.message },
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "请求参数格式错误",
+          details: error.validation,
+        },
+      });
+      return;
+    }
+
+    if (error.code === "FST_JWT_NO_AUTHORIZATION_HEADER" || error.code === "FST_JWT_AUTHORIZATION_TOKEN_EXPIRED") {
+      void reply.status(401).send({
+        error: { code: "UNAUTHORIZED", message: "请先登录" },
       });
       return;
     }

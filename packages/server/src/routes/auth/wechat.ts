@@ -35,10 +35,23 @@ export default async function wechatRoutes(fastify: FastifyInstance) {
       });
     }
 
+    if (!env.WECHAT_APP_SECRET) {
+      return reply.status(501).send({
+        error: { code: "NOT_CONFIGURED", message: "微信登录未配置" },
+      });
+    }
+
     // Exchange code for access_token + openid
-    const tokenRes = await fetch(
-      `https://api.weixin.qq.com/sns/oauth2/access_token?appid=${env.WECHAT_APP_ID}&secret=${env.WECHAT_APP_SECRET}&code=${code}&grant_type=authorization_code`,
-    );
+    let tokenRes: Response;
+    try {
+      tokenRes = await fetch(
+        `https://api.weixin.qq.com/sns/oauth2/access_token?appid=${env.WECHAT_APP_ID}&secret=${env.WECHAT_APP_SECRET}&code=${code}&grant_type=authorization_code`,
+      );
+    } catch (err) {
+      return reply.status(502).send({
+        error: { code: "WECHAT_API_ERROR", message: "微信服务不可用" },
+      });
+    }
     const tokenData = await tokenRes.json() as {
       openid?: string;
       access_token?: string;
@@ -52,13 +65,27 @@ export default async function wechatRoutes(fastify: FastifyInstance) {
     }
 
     // Fetch user profile from WeChat
-    const profileRes = await fetch(
-      `https://api.weixin.qq.com/sns/userinfo?access_token=${tokenData.access_token}&openid=${tokenData.openid}`,
-    );
+    let profileRes: Response;
+    try {
+      profileRes = await fetch(
+        `https://api.weixin.qq.com/sns/userinfo?access_token=${tokenData.access_token}&openid=${tokenData.openid}`,
+      );
+    } catch (err) {
+      return reply.status(502).send({
+        error: { code: "WECHAT_API_ERROR", message: "获取用户信息失败" },
+      });
+    }
     const profileData = await profileRes.json() as {
       nickname?: string;
       headimgurl?: string;
+      errcode?: number;
     };
+
+    if (profileData.errcode) {
+      return reply.status(502).send({
+        error: { code: "WECHAT_ERROR", message: "获取用户信息失败" },
+      });
+    }
 
     const user = await upsertByWechat(
       tokenData.openid,

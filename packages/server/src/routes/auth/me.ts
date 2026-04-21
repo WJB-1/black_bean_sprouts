@@ -4,16 +4,22 @@ import { findById } from "../../services/user.js";
 export default async function meRoutes(fastify: FastifyInstance) {
   fastify.get("/me", {
     preHandler: [fastify.authenticate],
-  }, async (request) => {
+  }, async (request, reply) => {
     const { userId } = request.user;
-    const user = await findById(userId);
-
-    return {
-      id: user.id,
-      nickname: user.nickname,
-      phone: user.phone,
-      avatarUrl: user.avatarUrl,
-      tier: user.tier,
-    };
+    try {
+      const user = await findById(userId);
+      return {
+        id: user.id,
+        nickname: user.nickname,
+        phone: user.phone,
+        avatarUrl: user.avatarUrl,
+        tier: user.tier,
+      };
+    } catch (err) {
+      // findById throws 404 if user not found
+      return reply.status(404).send({
+        error: { code: "USER_NOT_FOUND", message: "用户不存在" },
+      });
+    }
   });
 }

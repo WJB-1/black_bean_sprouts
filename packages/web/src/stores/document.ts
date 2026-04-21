@@ -25,6 +25,9 @@ export const useDocumentStore = defineStore("document", () => {
     loading.value = true;
     try {
       documents.value = await apiFetch<DocInfo[]>("/documents");
+    } catch (err) {
+      // Re-throw to let caller handle error display
+      throw err;
     } finally {
       loading.value = false;
     }
@@ -34,6 +37,10 @@ export const useDocumentStore = defineStore("document", () => {
     loading.value = true;
     try {
       currentDoc.value = await apiFetch<DocDetail>(`/documents/${id}`);
+    } catch (err) {
+      currentDoc.value = null;
+      // Re-throw to let caller handle error display
+      throw err;
     } finally {
       loading.value = false;
     }
@@ -60,17 +67,44 @@ export const useDocumentStore = defineStore("document", () => {
     documents.value = documents.value.filter((d) => d.id !== id);
   }
 
-  async function renderDocument(id: string): Promise<Blob> {
-    const res = await fetch(`/api/documents/${id}/render`, {
+  async function renderDocument(id: string, signal?: AbortSignal): Promise<Blob> {
+    const token = localStorage.getItem("bbs_access_token");
+    if (!token) {
+      throw new Error("未登录");
+    }
+
+    const init: RequestInit = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${localStorage.getItem("bbs_access_token")}`,
+        "Authorization": `Bearer ${token}`,
       },
-    });
-    if (!res.ok) {
-      throw new Error("渲染失败");
+    };
+    if (signal !== undefined) {
+      init.signal = signal;
     }
+
+    const res = await fetch(`/api/documents/${id}/render`, init);
+
+    if (!res.ok) {
+      // Try to get error message from response
+      let errorMsg = `渲染失败 (${res.status})`;
+      try {
+        const body = await res.json() as { error?: { message?: string } };
+        errorMsg = body.error?.message ?? errorMsg;
+      } catch {
+        // Response might not be JSON
+      }
+      throw new Error(errorMsg);
+    }
+
+    // Validate that response is a blob (not an error in JSON format)
+    const contentType = res.headers.get("content-type");
+    if (contentType?.includes("application/json")) {
+      const body = await res.json() as { error?: { message?: string } };
+      throw new Error(body.error?.message ?? "渲染失败");
+    }
+
     return res.blob();
   }
 

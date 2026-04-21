@@ -1,20 +1,40 @@
 import type { FastifyInstance } from "fastify";
+import { Type } from "@sinclair/typebox";
 import type { Doc, StyleProfile } from "@black-bean-sprouts/doc-schema";
 import { DocxRenderer } from "@black-bean-sprouts/doc-engine";
 import { NumberingResolver } from "@black-bean-sprouts/doc-engine";
 import { CitationFormatter } from "@black-bean-sprouts/doc-engine";
 import { prisma } from "../../lib/prisma.js";
 
+const ObjectIdPattern = "^[0-9a-fA-F]{24}$";
+
+const DocumentIdParams = Type.Object({
+  id: Type.String({ pattern: ObjectIdPattern }),
+});
+
+const RenderBody = Type.Object({
+  format: Type.Optional(Type.Union([Type.Literal("docx"), Type.Literal("pdf")])),
+});
+
+function sanitizeFilename(filename: string): string {
+  // Remove any characters that aren't safe for filenames
+  return filename.replace(/[^a-zA-Z0-9\u4e00-\u9fa5._-]/g, "_");
+}
+
 export default async function renderRoutes(fastify: FastifyInstance) {
   fastify.post(
     "/:id/render",
     {
       preHandler: [fastify.authenticate],
+      schema: {
+        params: DocumentIdParams,
+        body: RenderBody,
+      },
     },
     async (request, reply) => {
       const user = request.user as { userId: string };
       const { id } = request.params as { id: string };
-      const { format = "docx" } = (request.body as { format?: string }) ?? {};
+      const { format = "docx" } = request.body as { format?: string };
 
       const doc = await prisma.document.findUnique({ where: { id } });
       if (!doc || doc.userId !== user.userId) {
@@ -135,9 +155,10 @@ export default async function renderRoutes(fastify: FastifyInstance) {
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         );
+        const safeFilename = sanitizeFilename(doc.title ?? "document");
         void reply.header(
           "Content-Disposition",
-          `attachment; filename="${doc.title ?? "document"}.docx"`,
+          `attachment; filename="${safeFilename}.docx"; filename*=UTF-8''${encodeURIComponent(safeFilename)}.docx`,
         );
         return reply.send(buffer);
       } catch (err) {

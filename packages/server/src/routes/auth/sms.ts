@@ -18,8 +18,14 @@ export default async function smsRoutes(fastify: FastifyInstance) {
     schema: { body: SendBody },
   }, async (request, reply) => {
     const { phone } = request.body as { phone: string };
-    sendCode(phone);
-    await reply.send({ success: true });
+    try {
+      sendCode(phone);
+      await reply.send({ success: true });
+    } catch (err) {
+      fastify.log.error({ err, phone }, "SMS send failed");
+      // Still return success to prevent phone enumeration
+      await reply.send({ success: true });
+    }
   });
 
   fastify.post("/sms/verify", {

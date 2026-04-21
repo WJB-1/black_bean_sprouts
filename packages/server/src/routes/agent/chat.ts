@@ -1,46 +1,54 @@
 import type { FastifyInstance } from "fastify";
+import { Type } from "@sinclair/typebox";
+
+const ChatBody = Type.Object({
+  message: Type.String({ minLength: 1 }),
+  sessionId: Type.Optional(Type.String()),
+  documentId: Type.Optional(Type.String()),
+  skillCode: Type.Optional(Type.String()),
+});
 
 export default async function chatRoute(fastify: FastifyInstance) {
-  fastify.post("/chat", async (request, reply) => {
-    type ChatBody = {
-      message?: string;
+  fastify.post("/chat", {
+    schema: { body: ChatBody },
+  }, async (request, reply) => {
+    const body = request.body as {
+      message: string;
       sessionId?: string;
       documentId?: string;
       skillCode?: string;
     };
-
-    const body = request.body as ChatBody;
     const user = request.user as { userId: string };
-    const message = body.message ?? "";
-    const documentId = body.documentId ?? "";
-
-    if (!message) {
-      return reply.status(400).send({
-        error: { code: "MISSING_MESSAGE", message: "缺少消息内容" },
-      });
-    }
 
     // Set up SSE headers
-    reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    });
+    reply.raw.setHeader("Content-Type", "text/event-stream");
+    reply.raw.setHeader("Cache-Control", "no-cache");
+    reply.raw.setHeader("Connection", "keep-alive");
 
     const eventId = crypto.randomUUID();
 
     // Send a mock response for now (orchestrator integration later)
-    const sendEvent = (event: Record<string, unknown>): void => {
-      reply.raw.write(`id: ${eventId}\ndata: ${JSON.stringify(event)}\n\n`);
+    const sendEvent = (event: Record<string, unknown>): boolean => {
+      try {
+        return reply.raw.write(`id: ${eventId}\ndata: ${JSON.stringify(event)}\n\n`);
+      } catch {
+        // Client disconnected
+        return false;
+      }
     };
+
+    // Handle client disconnect
+    reply.raw.on("close", () => {
+      reply.raw.end();
+    });
 
     sendEvent({
       type: "message_delta",
-      text: `收到消息: "${message}"。Agent 运行时尚未完全集成，这是占位回复。`,
+      text: `收到消息: "${body.message}"。Agent 运行时尚未完全集成，这是占位回复。`,
     });
     sendEvent({ type: "done", usage: { inputTokens: 0, outputTokens: 0 } });
 
     reply.raw.end();
-    await reply;
+    return reply;
   });
 }

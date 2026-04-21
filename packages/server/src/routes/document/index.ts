@@ -8,14 +8,20 @@ import {
   deleteDocument,
 } from "../../services/document.js";
 
+const ObjectIdPattern = "^[0-9a-fA-F]{24}$";
+
 const CreateBody = Type.Object({
-  docTypeId: Type.String(),
+  docTypeId: Type.String({ pattern: ObjectIdPattern }),
   title: Type.Optional(Type.String()),
-  styleProfileId: Type.Optional(Type.String()),
+  styleProfileId: Type.Optional(Type.String({ pattern: ObjectIdPattern })),
 });
 
 const UpdateBody = Type.Object({
   content: Type.Any(),
+});
+
+const DocumentIdParams = Type.Object({
+  id: Type.String({ pattern: ObjectIdPattern }),
 });
 
 export default async function documentRoutes(fastify: FastifyInstance) {
@@ -29,7 +35,9 @@ export default async function documentRoutes(fastify: FastifyInstance) {
   });
 
   // Get
-  fastify.get("/:id", async (request, reply) => {
+  fastify.get("/:id", {
+    schema: { params: DocumentIdParams },
+  }, async (request, reply) => {
     const user = request.user as { userId: string };
     const { id } = request.params as { id: string };
     try {
@@ -76,7 +84,10 @@ export default async function documentRoutes(fastify: FastifyInstance) {
   fastify.patch(
     "/:id",
     {
-      schema: { body: UpdateBody },
+      schema: {
+        params: DocumentIdParams,
+        body: UpdateBody,
+      },
     },
     async (request, reply) => {
       const user = request.user as { userId: string };
@@ -100,7 +111,9 @@ export default async function documentRoutes(fastify: FastifyInstance) {
   );
 
   // Delete
-  fastify.delete("/:id", async (request, reply) => {
+  fastify.delete("/:id", {
+    schema: { params: DocumentIdParams },
+  }, async (request, reply) => {
     const user = request.user as { userId: string };
     const { id } = request.params as { id: string };
     try {

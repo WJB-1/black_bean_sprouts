@@ -1,5 +1,11 @@
 import type { FastifyInstance } from "fastify";
+import { Type } from "@sinclair/typebox";
 import { prisma } from "../../lib/prisma.js";
+import { badRequest } from "../../lib/errors.js";
+
+const SessionIdParams = Type.Object({
+  sessionId: Type.String({ pattern: "^[0-9a-fA-F]{24}$" }),
+});
 
 export default async function sessionRoutes(fastify: FastifyInstance) {
   // List sessions for current user
@@ -18,6 +24,7 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
   // Get session with messages
   fastify.get("/sessions/:sessionId", {
     preHandler: [fastify.authenticate],
+    schema: { params: SessionIdParams },
   }, async (request, reply) => {
     const user = request.user as { userId: string };
     const { sessionId } = request.params as { sessionId: string };
