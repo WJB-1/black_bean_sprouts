@@ -43,3 +43,7 @@ prisma/migrations/
 # Temp files
 *.tmp
 *.bak
+
+# Process IDs (start/stop scripts)
+*.pid
+*.job

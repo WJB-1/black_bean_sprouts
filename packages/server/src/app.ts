@@ -9,6 +9,7 @@ import authRoutes from "./routes/auth/index.js";
 import agentRoutes from "./routes/agent/index.js";
 import documentRoutes from "./routes/document/index.js";
 import renderRoutes from "./routes/document/render.js";
+import adminRoutes from "./routes/admin/index.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const env = loadEnv();
@@ -23,6 +24,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await fastify.register(agentRoutes, { prefix: "/api/agent" });
   await fastify.register(documentRoutes, { prefix: "/api/documents" });
   await fastify.register(renderRoutes, { prefix: "/api/documents" });
+  await fastify.register(adminRoutes, { prefix: "/api/admin" });
 
   // Error handler
   fastify.setErrorHandler((error: FastifyError, _request, reply) => {
