@@ -1,0 +1,29 @@
+{
+  "name": "@black-bean-sprouts/doc-engine",
+  "version": "0.1.0",
+  "description": "Document rendering engine — AST + StyleProfile → Word/PDF",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@black-bean-sprouts/doc-schema": "workspace:*",
+    "citeproc": "^2.4.63",
+    "docx": "^9.0.0",
+    "nanoid": "^5.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
