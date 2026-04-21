@@ -28,9 +28,35 @@
 
 ### server
 - 启动成功 port 4000, auth + agent + document 路由: **PASS**
+- Agent 聊天端点已接入真实 AgentOrchestrator (OpenAI 兼容 LLM)
+- ToolServices 适配器已桥接 Prisma (loadDocument / saveDocument / submitRenderJob)
+- 所有 API 端点经 QA 审计: ObjectId 校验、TypeBox schema、错误处理完善
 
 ### web
-- Vite build: 2808 modules → dist/ 产出完整: **PASS**
+- Vite build: 2808+ modules → dist/ 产出完整: **PASS**
+- 所有 Vue 组件经 QA 审计: 输入校验、错误处理、资源清理完善
+- SMS 表单计时器清理、手机号验证、AgentChat SSE 重连
+
+### 集成验证
+- SSE /chat → AgentOrchestrator → LLM API → ToolRegistry → Prisma: **WIRED**
+- Render endpoint → DocxRenderer → .docx 下载: **WIRED**
+- CRUD 端到端: Web → API → Prisma: **WIRED**
+
+## QA 审计
+
+### API QA (已完成)
+- 所有 REST 端点 TypeBody 校验: PASS
+- ObjectId 合法性校验: PASS
+- WeChat OAuth 错误处理: PASS
+- SSE 错误恢复: PASS
+- Content-Disposition 头安全: PASS
+
+### Frontend QA (已完成)
+- 22 个文件修复, +956 行健壮性改进
+- SmsForm: 计时器清理、手机号/验证码输入限制
+- AgentChat: SSE 重连、消息累积、错误显示
+- DocEditor: AST 安全遍历、空状态处理
+- Router: 认证守卫边界情况
 
 ## 已完成文件统计
 
@@ -44,8 +70,8 @@
 ### packages/agent-runtime (20 + 1 test)
 - core (4), tools/ (6), llm/ (3), orchestrator/ (3), skills/ (3)
 
-### packages/server (20)
-- core (3), lib/ (3), plugins/ (2), services/ (3), routes/auth/ (4), routes/agent/ (3), routes/document/ (3)
+### packages/server (21)
+- core (3), lib/ (3), plugins/ (2), services/ (4), routes/auth/ (4), routes/agent/ (3), routes/document/ (3)
 
 ### packages/web (19)
 - lib/ (2), stores/ (2), router/ (1), pages/ (7), components/ (5), renderers/ (6)
@@ -53,4 +79,30 @@
 ### 基础设施
 - prisma/schema.prisma, docker-compose.yml, .env.example
 
-## 总文件数: ~110+ 源文件
+## 总文件数: ~112+ 源文件
+
+## 配置说明
+
+### LLM 接入
+在 `.env` 中配置:
+```
+LLM_BASE_URL=https://api.deepseek.com/v1  # 或其他 OpenAI 兼容 API
+LLM_API_KEY=your-api-key
+LLM_MODEL=deepseek-chat
+LLM_MAX_TURNS=10
+```
+
+### 启动
+```bash
+# 1. 启动依赖服务
+docker compose up -d
+
+# 2. 数据库迁移
+cd packages/server && npx prisma db push
+
+# 3. 启动后端
+pnpm --filter server dev
+
+# 4. 启动前端
+pnpm --filter web dev
+```

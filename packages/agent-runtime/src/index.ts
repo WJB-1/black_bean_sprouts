@@ -1,6 +1,7 @@
 // Tools
 export { ToolRegistry } from "./tools/registry.js";
 export type { ToolDefinition, ToolContext, ToolServices } from "./tools/types.js";
+export { patchDocumentTool, queryDocumentTool, renderDocumentTool } from "./tools/index.js";
 
 // LLM
 export { OpenAICompatProvider } from "./llm/openai-compat.js";

@@ -14,6 +14,12 @@ const EnvSchema = Type.Object({
   WECHAT_APP_ID: Type.Optional(Type.String()),
   WECHAT_APP_SECRET: Type.Optional(Type.String()),
   WECHAT_REDIRECT_URI: Type.Optional(Type.String()),
+
+  // LLM Provider (OpenAI-compatible API)
+  LLM_BASE_URL: Type.String({ default: "https://api.deepseek.com/v1" }),
+  LLM_API_KEY: Type.String({ default: "" }),
+  LLM_MODEL: Type.String({ default: "deepseek-chat" }),
+  LLM_MAX_TURNS: Type.String({ default: "10" }),
 });
 
 export type Env = Static<typeof EnvSchema>;

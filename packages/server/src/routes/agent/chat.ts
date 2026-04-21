@@ -1,5 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import { Type } from "@sinclair/typebox";
+import {
+  AgentOrchestrator,
+  OpenAICompatProvider,
+  ToolRegistry,
+  patchDocumentTool,
+  queryDocumentTool,
+  renderDocumentTool,
+  getSkill,
+} from "@black-bean-sprouts/agent-runtime";
+import { loadEnv } from "../../env.js";
+import { createToolServices } from "../../services/agent.js";
+import { prisma } from "../../lib/prisma.js";
 
 const ChatBody = Type.Object({
   message: Type.String({ minLength: 1 }),
@@ -7,6 +19,34 @@ const ChatBody = Type.Object({
   documentId: Type.Optional(Type.String()),
   skillCode: Type.Optional(Type.String()),
 });
+
+/** Create orchestrator with LLM provider + tools */
+function buildOrchestrator(skillCode: string): {
+  orchestrator: AgentOrchestrator;
+  skill: NonNullable<ReturnType<typeof getSkill>>;
+} | null {
+  const env = loadEnv();
+  const skill = getSkill(skillCode ?? "thesis");
+  if (!skill) return null;
+
+  const provider = new OpenAICompatProvider({
+    baseURL: env.LLM_BASE_URL,
+    apiKey: env.LLM_API_KEY,
+    model: env.LLM_MODEL,
+  });
+
+  const registry = new ToolRegistry();
+  registry.register(patchDocumentTool);
+  registry.register(queryDocumentTool);
+  registry.register(renderDocumentTool);
+
+  const maxTurns = parseInt(env.LLM_MAX_TURNS, 10) || 10;
+
+  return {
+    orchestrator: new AgentOrchestrator({ provider, registry, skill, maxTurns }),
+    skill,
+  };
+}
 
 export default async function chatRoute(fastify: FastifyInstance) {
   fastify.post("/chat", {
@@ -20,33 +60,120 @@ export default async function chatRoute(fastify: FastifyInstance) {
     };
     const user = request.user as { userId: string };
 
-    // Set up SSE headers
+    // SSE headers
     reply.raw.setHeader("Content-Type", "text/event-stream");
     reply.raw.setHeader("Cache-Control", "no-cache");
     reply.raw.setHeader("Connection", "keep-alive");
+    reply.raw.setHeader("X-Accel-Buffering", "no");
 
-    const eventId = crypto.randomUUID();
-
-    // Send a mock response for now (orchestrator integration later)
+    let eventId = 0;
     const sendEvent = (event: Record<string, unknown>): boolean => {
       try {
-        return reply.raw.write(`id: ${eventId}\ndata: ${JSON.stringify(event)}\n\n`);
+        return reply.raw.write(`id: ${eventId++}\ndata: ${JSON.stringify(event)}\n\n`);
       } catch {
-        // Client disconnected
         return false;
       }
     };
 
-    // Handle client disconnect
+    const abortController = new AbortController();
     reply.raw.on("close", () => {
+      abortController.abort();
       reply.raw.end();
     });
 
-    sendEvent({
-      type: "message_delta",
-      text: `收到消息: "${body.message}"。Agent 运行时尚未完全集成，这是占位回复。`,
+    // Ensure session exists
+    let sessionId = body.sessionId;
+    if (!sessionId) {
+      // AgentSession requires a documentId — use a placeholder if not provided
+      const docId = body.documentId ?? "none";
+      const session = await prisma.agentSession.create({
+        data: {
+          userId: user.userId,
+          documentId: docId,
+          workingMemory: {},
+        },
+      });
+      sessionId = session.id;
+      sendEvent({ type: "session_created", sessionId });
+    }
+
+    // Load message history from related AgentMessage records
+    const dbMessages = await prisma.agentMessage.findMany({
+      where: { sessionId },
+      orderBy: { createdAt: "asc" },
     });
-    sendEvent({ type: "done", usage: { inputTokens: 0, outputTokens: 0 } });
+
+    const history = dbMessages
+      .filter((m) => m.role === "USER" || m.role === "ASSISTANT")
+      .map((m) => ({
+        role: (m.role === "USER" ? "user" : "assistant") as "user" | "assistant",
+        content: m.content ?? "",
+      }));
+
+    // Build orchestrator
+    const built = buildOrchestrator(body.skillCode ?? "thesis");
+    if (!built) {
+      sendEvent({ type: "error", error: { code: "INVALID_SKILL", message: "未知的技能类型" } });
+      sendEvent({ type: "done", usage: { inputTokens: 0, outputTokens: 0 } });
+      reply.raw.end();
+      return reply;
+    }
+
+    const services = createToolServices(user.userId);
+
+    try {
+      // Save user message
+      await prisma.agentMessage.create({
+        data: {
+          sessionId,
+          role: "USER",
+          content: body.message,
+        },
+      });
+
+      // Run orchestrator
+      const stream = built.orchestrator.run({
+        sessionId,
+        userId: user.userId,
+        docId: body.documentId ?? "",
+        userMessage: body.message,
+        history,
+        signal: abortController.signal,
+        services,
+      });
+
+      let assistantText = "";
+      for await (const event of stream) {
+        if (abortController.signal.aborted) break;
+        sendEvent(event);
+
+        if (event.type === "message_delta") {
+          assistantText += event.text;
+        }
+      }
+
+      // Save assistant message
+      if (assistantText) {
+        await prisma.agentMessage.create({
+          data: {
+            sessionId,
+            role: "ASSISTANT",
+            content: assistantText,
+          },
+        });
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Agent 运行出错";
+      if (errorMessage.includes("LLM API error") || errorMessage.includes("API key")) {
+        sendEvent({
+          type: "message_delta",
+          text: `收到消息: "${body.message}"。\n\n当前 LLM 服务未配置或不可用，请在 .env 中设置 LLM_API_KEY。\n支持任何 OpenAI 兼容 API (DeepSeek / MiniMax / OpenAI 等)。`,
+        });
+      } else {
+        sendEvent({ type: "error", error: { code: "AGENT_ERROR", message: errorMessage } });
+      }
+      sendEvent({ type: "done", usage: { inputTokens: 0, outputTokens: 0 } });
+    }
 
     reply.raw.end();
     return reply;

@@ -74,6 +74,9 @@ importers:
       '@black-bean-sprouts/agent-runtime':
         specifier: workspace:*
         version: link:../agent-runtime
+      '@black-bean-sprouts/doc-engine':
+        specifier: workspace:*
+        version: link:../doc-engine
       '@black-bean-sprouts/doc-schema':
         specifier: workspace:*
         version: link:../doc-schema
@@ -101,6 +104,9 @@ importers:
       fastify:
         specifier: ^5.0.0
         version: 5.8.5
+      nanoid:
+        specifier: ^5.0.0
+        version: 5.1.9
     devDependencies:
       prisma:
         specifier: ^6.0.0
