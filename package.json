@@ -1,0 +1,30 @@
+{
+  "name": "black-bean-sprouts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "黑豆芽 — 医学文档排版 Agent 平台",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "lint": "eslint packages/*/src --ext .ts",
+    "typecheck": "pnpm -r run typecheck",
+    "clean": "pnpm -r run clean",
+    "dev:schema": "pnpm --filter @black-bean-sprouts/doc-schema dev",
+    "dev:server": "pnpm --filter @black-bean-sprouts/server dev",
+    "dev:web": "pnpm --filter @black-bean-sprouts/web dev",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.4",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0"
+  }
+}

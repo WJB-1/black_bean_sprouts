@@ -1,0 +1,29 @@
+{
+  "name": "@black-bean-sprouts/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vue 3 + Vite + Naive UI frontend",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@black-bean-sprouts/doc-schema": "workspace:*",
+    "vue": "^3.5.0",
+    "vue-router": "^4.0.0",
+    "naive-ui": "^2.40.0",
+    "@tiptap/vue-3": "^2.10.0",
+    "@tiptap/starter-kit": "^2.10.0",
+    "pinia": "^2.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vue-tsc": "^2.0.0"
+  }
+}
