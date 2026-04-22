@@ -1,7 +1,7 @@
 // @doc-schema-version: 1.0.0
 import type { FastifyInstance } from "fastify";
 import { Type } from "@sinclair/typebox";
-import type { DocumentPatch } from "@black-bean-sprouts/doc-schema";
+import { DocumentPatchArraySchema, type DocumentPatch } from "@black-bean-sprouts/doc-schema";
 import { createDocument, deleteDocument, getDocument, listDocuments, updateDocumentContent } from "../../services/document.js";
 import { applyPatchesToDocument } from "../../services/documentApplication.js";
 
@@ -19,7 +19,7 @@ const UpdateBody = Type.Object({
 });
 
 const PatchBody = Type.Object({
-  patches: Type.Array(Type.Unknown()),
+  patches: DocumentPatchArraySchema,
 });
 
 export default async function documentRoutes(fastify: FastifyInstance) {

@@ -5,8 +5,9 @@
   "description": "黑豆芽 — 医学文档排版 Agent 平台",
   "scripts": {
     "build": "pnpm -r run build",
+    "build:libs": "pnpm --filter @black-bean-sprouts/doc-schema build && pnpm --filter @black-bean-sprouts/agent-runtime build && pnpm --filter @black-bean-sprouts/doc-engine build && pnpm --filter @black-bean-sprouts/xiaolongxia-kernel build",
     "lint": "eslint packages/*/src --ext .ts",
-    "typecheck": "pnpm -r run typecheck",
+    "typecheck": "pnpm run build:libs && pnpm --filter @black-bean-sprouts/doc-schema run _typecheck && pnpm --filter @black-bean-sprouts/agent-runtime run _typecheck && pnpm --filter @black-bean-sprouts/doc-engine run _typecheck && pnpm --filter @black-bean-sprouts/web run _typecheck && pnpm --filter @black-bean-sprouts/xiaolongxia-kernel run _typecheck && pnpm --filter @black-bean-sprouts/server run _typecheck",
     "clean": "pnpm -r run clean",
     "dev:schema": "pnpm --filter @black-bean-sprouts/doc-schema dev",
     "dev:server": "pnpm --filter @black-bean-sprouts/server dev",
@@ -24,6 +25,7 @@
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
     "eslint": "^9.0.0",
+    "rimraf": "^6.0.1",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0"
   }

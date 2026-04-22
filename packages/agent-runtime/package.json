@@ -14,8 +14,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
-    "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist *.tsbuildinfo"
+    "smoke:patch-tool": "node ./tests/patch-document-tool-test.mjs",
+    "_typecheck": "tsc --noEmit",
+    "typecheck": "pnpm -C ../.. --filter @black-bean-sprouts/doc-schema build && pnpm run _typecheck",
+    "clean": "rimraf dist tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo"
   },
   "dependencies": {
     "@black-bean-sprouts/doc-schema": "workspace:*"

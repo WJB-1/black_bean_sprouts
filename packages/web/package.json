@@ -8,8 +8,9 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit",
-    "clean": "rm -rf dist"
+    "_typecheck": "vue-tsc --noEmit",
+    "typecheck": "pnpm -C ../.. --filter @black-bean-sprouts/doc-schema build && pnpm run _typecheck",
+    "clean": "rimraf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
     "@black-bean-sprouts/doc-schema": "workspace:*",

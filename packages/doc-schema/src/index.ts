@@ -60,6 +60,16 @@ export type { DocumentPatch } from "./patch/types.js";
 export { applyDocumentPatches, DocumentPatchError } from "./patch/index.js";
 
 // Runtime validators
-export { validateDoc, isValidDoc, validateStyleProfile, isValidStyleProfile } from "./schemas/validators.js";
+export {
+  validateDoc,
+  validateDocumentPatch,
+  validateDocumentPatchArray,
+  isValidDoc,
+  isValidDocumentPatch,
+  isValidDocumentPatchArray,
+  validateStyleProfile,
+  isValidStyleProfile,
+} from "./schemas/validators.js";
 export { DocSchema, DocMetaSchema } from "./schemas/doc-schema.js";
+export { DocumentPatchSchema, DocumentPatchArraySchema } from "./schemas/patch-schemas.js";
 export { StyleProfileSchema } from "./schemas/style-schemas.js";

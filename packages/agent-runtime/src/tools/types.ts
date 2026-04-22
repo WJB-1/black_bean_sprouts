@@ -1,3 +1,5 @@
+import type { DocumentPatch } from "@black-bean-sprouts/doc-schema";
+
 /** JSON Schema style parameter definition */
 export interface ParameterSchema {
   type: "string" | "number" | "boolean" | "object" | "array";
@@ -21,6 +23,7 @@ export interface ToolServices {
   prisma: unknown;
   loadDocument: (docId: string) => Promise<unknown>;
   saveDocument: (docId: string, content: unknown) => Promise<void>;
+  applyDocumentPatches: (docId: string, patches: readonly DocumentPatch[]) => Promise<unknown>;
   submitRenderJob: (docId: string, format: string) => Promise<string>;
 }
 

@@ -101,3 +101,21 @@ Doc + DocumentPatch[]
 - 涉及渲染：不得绕过 `StyleProfile`。
 - 涉及前端编辑：不得整体覆盖 AST，必须生成 patch。
 - 每次模块完成都更新 `docs/PROGRESS.md` 和 `docs/SMOKE_ASSESSMENT.md`。
+
+## 2026-04-22 检查点补记
+
+### M3 `patch_document` 工具链
+
+- `packages/agent-runtime/src/tools/patch-document.ts` 已改为在执行前校验 `DocumentPatch[]`。
+- `packages/server/src/services/agent.ts` 已把工具层 patch 请求接到 `applyPatchesToDocument(...)`。
+- `packages/server/src/routes/document/index.ts` 已对 `PATCH /api/documents/:id/patches` 使用 `DocumentPatchArraySchema`。
+- `packages/doc-schema/src/schemas/patch-schemas.ts` 已新增运行时 patch schema，供 server / agent 共用。
+- `packages/agent-runtime/tests/patch-document-tool-test.mjs` 已新增冒烟，确认工具会把 patch 转发到服务层。
+
+### 工程链路修复
+
+- 已确认真正问题是：workspace 内部包默认解析到上游 `dist`，不是源码。
+- 这会导致 `clean` 后直接执行 `server dev` / `typecheck` 时，因为缺少上游 `dist` 而失败。
+- 已验证把内部包直接映射到 sibling `src` 会触发 `rootDir` / `TS6307` 跨包错误，因此暂不采用该方案。
+- 先落地低风险修复：新增根脚本 `build:libs`，并让根 `typecheck` 与 `server predev` 先补齐内部库产物。
+- 所有包的 `clean` 脚本已切到 `rimraf`，并显式清理 `dist` 与 `tsbuildinfo`，避免 Windows 下通配符/壳差异导致残留。

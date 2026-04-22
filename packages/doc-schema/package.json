@@ -15,8 +15,9 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
     "smoke:patch": "node ./tests/patch-test.mjs",
-    "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist *.tsbuildinfo"
+    "_typecheck": "tsc --noEmit",
+    "typecheck": "pnpm run _typecheck",
+    "clean": "rimraf dist tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo"
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.0",

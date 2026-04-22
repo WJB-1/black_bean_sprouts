@@ -162,3 +162,16 @@
 3. 用 mock LLM 触发 `patch_document`，证明当前仍不会修改文档，然后修复。
 4. 接入真实 OpenClaw command 路径后，证明 SSE 事件来自 OpenClaw run lifecycle。
 5. 前端收到 `kernel_session`、`document_patched`、`done` 后行为正确。
+
+## 2026-04-22 补充冒烟
+
+| 命令 | 结果 | 说明 |
+|---|---:|---|
+| `pnpm clean` | PASS | 从工作区清空 `dist` 与 `tsbuildinfo`，复测后无残留 |
+| `pnpm typecheck` | PASS | 在根脚本先执行 `build:libs` 后，全 workspace 检查通过 |
+| `pnpm --filter @black-bean-sprouts/agent-runtime typecheck` | PASS | 单包检查会先补齐 `doc-schema` 产物 |
+| `pnpm --filter @black-bean-sprouts/server typecheck` | PASS | 单包检查会先补齐内部库链路产物 |
+| `pnpm --filter @black-bean-sprouts/doc-schema smoke:patch` | PASS | `DocumentPatch` 引擎冒烟通过 |
+| `pnpm --filter @black-bean-sprouts/agent-runtime smoke:patch-tool` | PASS | `patch_document` 工具链冒烟通过 |
+| `pnpm --filter @black-bean-sprouts/server build` | PASS | server 构建通过 |
+| `pnpm --filter @black-bean-sprouts/server dev` | PASS | 从 clean 状态可自动补齐内部库并启动，日志显示监听 `4000` 端口 |
