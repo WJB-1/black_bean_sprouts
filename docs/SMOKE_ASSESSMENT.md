@@ -25,6 +25,7 @@
 | `pnpm --filter @black-bean-sprouts/server typecheck` | PASS | server 路由重接线后类型检查通过 |
 | `pnpm typecheck` | PASS | 全 workspace TypeScript 检查通过 |
 | `pnpm build` | PASS | 全 workspace 构建通过 |
+| 后端启动 + `GET /api/health` | PASS | 通过受控后台 job 启动 `@black-bean-sprouts/server`，健康检查返回 `{"status":"ok"}` |
 
 构建警告：
 
@@ -59,6 +60,7 @@
 
 - `/api/agent/chat` 改为通过 `createXiaolongxiaRuntime()` 运行。
 - route 不再直接 new 自定义 orchestrator。
+- 后端启动后 `/api/health` 返回 `200` 和 `{"status":"ok"}`。
 - 创建/加载 Agent session 时校验用户与文档归属。
 - 新建 session 必须有合法 `documentId`，不再写入 `"none"` 这种无效外键。
 - `AgentSession.workingMemory.kernel` 会保存内核元数据。
