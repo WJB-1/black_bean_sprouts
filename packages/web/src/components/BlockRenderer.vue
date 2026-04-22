@@ -1,47 +1,55 @@
-<script setup lang="ts">
-import { h, type VNode } from "vue";
-import SectionRenderer from "./renderers/SectionRenderer.vue";
-import ParagraphRenderer from "./renderers/ParagraphRenderer.vue";
-import FigureRenderer from "./renderers/FigureRenderer.vue";
-import TableRenderer from "./renderers/TableRenderer.vue";
-import FormulaRenderer from "./renderers/FormulaRenderer.vue";
-import AbstractRenderer from "./renderers/AbstractRenderer.vue";
-import type { BlockNode, BaseNode } from "./renderers/types";
-import { isSectionNode, isParagraphNode, isFigureNode, isTableNode, isFormulaNode, isAbstractNode } from "./renderers/types";
-
-const props = defineProps<{ node: BlockNode }>();
-
-function renderBlock(): VNode {
-  const node = props.node;
-  if (isSectionNode(node)) {
-    return h(SectionRenderer, { node });
-  }
-  if (isParagraphNode(node)) {
-    return h(ParagraphRenderer, { node });
-  }
-  if (isFigureNode(node)) {
-    return h(FigureRenderer, { node });
-  }
-  if (isTableNode(node)) {
-    return h(TableRenderer, { node });
-  }
-  if (isFormulaNode(node)) {
-    return h(FormulaRenderer, { node });
-  }
-  if (isAbstractNode(node)) {
-    return h(AbstractRenderer, { node });
-  }
-  const baseNode: BaseNode = node;
-  return h("p", { class: "unsupported" }, `[${baseNode.type}]`);
-}
-
-defineExpose({ renderBlock });
-</script>
-
 <template>
-  <component :is="renderBlock()" />
+  <section-renderer v-if="isSection(node)" :node="node" />
+  <paragraph-renderer v-else-if="isParagraph(node)" :node="node" />
+  <figure-renderer v-else-if="isFigure(node)" :node="node" />
+  <table-renderer v-else-if="isTable(node)" :node="node" />
+  <formula-renderer v-else-if="isFormula(node)" :node="node" />
+  <abstract-renderer v-else-if="isAbstract(node)" :node="node" />
+  <div v-else class="apple-panel apple-panel-soft" style="padding: 16px 18px;">
+    <p class="apple-muted">暂不支持预览的区块类型：{{ node.type }}</p>
+  </div>
 </template>
 
-<style scoped>
-.unsupported { color: #999; font-style: italic; padding: 8px; }
-</style>
+<script setup lang="ts">
+import type {
+  Abstract,
+  BlockNode,
+  Figure,
+  Formula,
+  Paragraph,
+  Section,
+  Table,
+} from "@black-bean-sprouts/doc-schema";
+import AbstractRenderer from "./renderers/AbstractRenderer.vue";
+import FigureRenderer from "./renderers/FigureRenderer.vue";
+import FormulaRenderer from "./renderers/FormulaRenderer.vue";
+import ParagraphRenderer from "./renderers/ParagraphRenderer.vue";
+import SectionRenderer from "./renderers/SectionRenderer.vue";
+import TableRenderer from "./renderers/TableRenderer.vue";
+
+defineProps<{ node: BlockNode }>();
+
+function isSection(node: BlockNode): node is Section {
+  return node.type === "section";
+}
+
+function isParagraph(node: BlockNode): node is Paragraph {
+  return node.type === "paragraph";
+}
+
+function isFigure(node: BlockNode): node is Figure {
+  return node.type === "figure";
+}
+
+function isTable(node: BlockNode): node is Table {
+  return node.type === "table";
+}
+
+function isFormula(node: BlockNode): node is Formula {
+  return node.type === "formula";
+}
+
+function isAbstract(node: BlockNode): node is Abstract {
+  return node.type === "abstract";
+}
+</script>

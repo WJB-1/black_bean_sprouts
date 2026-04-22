@@ -1,6 +1,6 @@
 // @doc-schema-version: 1.0.0
-import type { BlockBase } from "../base";
-import type { Paragraph } from "./paragraph";
+import type { BlockBase } from "../base.js";
+import type { Paragraph } from "./paragraph.js";
 
 export interface Abstract extends BlockBase {
   type: "abstract";

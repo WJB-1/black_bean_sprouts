@@ -1,5 +1,5 @@
 // @doc-schema-version: 1.0.0
-import type { ParagraphRole } from "../block/paragraph";
+import type { ParagraphRole } from "../block/paragraph.js";
 
 export interface ParagraphStyle {
   font?: string;

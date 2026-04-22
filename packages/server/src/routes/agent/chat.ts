@@ -2,16 +2,16 @@ import type { FastifyInstance } from "fastify";
 import { Type } from "@sinclair/typebox";
 import {
   AgentOrchestrator,
+  getSkill,
   OpenAICompatProvider,
-  ToolRegistry,
   patchDocumentTool,
   queryDocumentTool,
   renderDocumentTool,
-  getSkill,
+  ToolRegistry,
 } from "@black-bean-sprouts/agent-runtime";
 import { loadEnv } from "../../env.js";
-import { createToolServices } from "../../services/agent.js";
 import { prisma } from "../../lib/prisma.js";
+import { createToolServices } from "../../services/agent.js";
 
 const ChatBody = Type.Object({
   message: Type.String({ minLength: 1 }),
@@ -20,14 +20,15 @@ const ChatBody = Type.Object({
   skillCode: Type.Optional(Type.String()),
 });
 
-/** Create orchestrator with LLM provider + tools */
 function buildOrchestrator(skillCode: string): {
   orchestrator: AgentOrchestrator;
   skill: NonNullable<ReturnType<typeof getSkill>>;
 } | null {
   const env = loadEnv();
-  const skill = getSkill(skillCode ?? "thesis");
-  if (!skill) return null;
+  const skill = getSkill(skillCode);
+  if (!skill) {
+    return null;
+  }
 
   const provider = new OpenAICompatProvider({
     baseURL: env.LLM_BASE_URL,
@@ -40,7 +41,7 @@ function buildOrchestrator(skillCode: string): {
   registry.register(queryDocumentTool);
   registry.register(renderDocumentTool);
 
-  const maxTurns = parseInt(env.LLM_MAX_TURNS, 10) || 10;
+  const maxTurns = Number.parseInt(env.LLM_MAX_TURNS, 10) || 10;
 
   return {
     orchestrator: new AgentOrchestrator({ provider, registry, skill, maxTurns }),
@@ -60,7 +61,6 @@ export default async function chatRoute(fastify: FastifyInstance) {
     };
     const user = request.user as { userId: string };
 
-    // SSE headers
     reply.raw.setHeader("Content-Type", "text/event-stream");
     reply.raw.setHeader("Cache-Control", "no-cache");
     reply.raw.setHeader("Connection", "keep-alive");
@@ -81,10 +81,8 @@ export default async function chatRoute(fastify: FastifyInstance) {
       reply.raw.end();
     });
 
-    // Ensure session exists
     let sessionId = body.sessionId;
     if (!sessionId) {
-      // AgentSession requires a documentId — use a placeholder if not provided
       const docId = body.documentId ?? "none";
       const session = await prisma.agentSession.create({
         data: {
@@ -97,20 +95,18 @@ export default async function chatRoute(fastify: FastifyInstance) {
       sendEvent({ type: "session_created", sessionId });
     }
 
-    // Load message history from related AgentMessage records
     const dbMessages = await prisma.agentMessage.findMany({
       where: { sessionId },
       orderBy: { createdAt: "asc" },
     });
 
     const history = dbMessages
-      .filter((m) => m.role === "USER" || m.role === "ASSISTANT")
-      .map((m) => ({
-        role: (m.role === "USER" ? "user" : "assistant") as "user" | "assistant",
-        content: m.content ?? "",
+      .filter((message) => message.role === "USER" || message.role === "ASSISTANT")
+      .map((message) => ({
+        role: (message.role === "USER" ? "user" : "assistant") as "user" | "assistant",
+        content: message.content ?? "",
       }));
 
-    // Build orchestrator
     const built = buildOrchestrator(body.skillCode ?? "thesis");
     if (!built) {
       sendEvent({ type: "error", error: { code: "INVALID_SKILL", message: "未知的技能类型" } });
@@ -122,7 +118,6 @@ export default async function chatRoute(fastify: FastifyInstance) {
     const services = createToolServices(user.userId);
 
     try {
-      // Save user message
       await prisma.agentMessage.create({
         data: {
           sessionId,
@@ -131,7 +126,6 @@ export default async function chatRoute(fastify: FastifyInstance) {
         },
       });
 
-      // Run orchestrator
       const stream = built.orchestrator.run({
         sessionId,
         userId: user.userId,
@@ -144,15 +138,16 @@ export default async function chatRoute(fastify: FastifyInstance) {
 
       let assistantText = "";
       for await (const event of stream) {
-        if (abortController.signal.aborted) break;
-        sendEvent(event);
+        if (abortController.signal.aborted) {
+          break;
+        }
 
+        sendEvent(event);
         if (event.type === "message_delta") {
           assistantText += event.text;
         }
       }
 
-      // Save assistant message
       if (assistantText) {
         await prisma.agentMessage.create({
           data: {
@@ -167,7 +162,7 @@ export default async function chatRoute(fastify: FastifyInstance) {
       if (errorMessage.includes("LLM API error") || errorMessage.includes("API key")) {
         sendEvent({
           type: "message_delta",
-          text: `收到消息: "${body.message}"。\n\n当前 LLM 服务未配置或不可用，请在 .env 中设置 LLM_API_KEY。\n支持任何 OpenAI 兼容 API (DeepSeek / MiniMax / OpenAI 等)。`,
+          text: `已收到你的消息：“${body.message}”。\n\n当前 LLM 服务未配置或暂不可用，请在 .env 中设置 LLM_API_KEY。\n支持任意 OpenAI 兼容 API（DeepSeek / MiniMax / OpenAI 等）。`,
         });
       } else {
         sendEvent({ type: "error", error: { code: "AGENT_ERROR", message: errorMessage } });

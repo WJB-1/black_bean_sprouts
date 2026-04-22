@@ -1,7 +1,7 @@
 // @doc-schema-version: 1.0.0
 import Ajv from "ajv";
-import { DocSchema } from "./doc-schema";
-import { StyleProfileSchema } from "./style-schemas";
+import { DocSchema } from "./doc-schema.js";
+import { StyleProfileSchema } from "./style-schemas.js";
 
 const ajv = new Ajv({ strict: false });
 

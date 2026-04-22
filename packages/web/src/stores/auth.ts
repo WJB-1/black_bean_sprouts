@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
-import { ref, computed } from "vue";
+import { computed, ref } from "vue";
 import { apiFetch } from "../lib/api.js";
-import { setAccessToken, clearTokens, getAccessToken } from "../lib/token.js";
+import { clearTokens, getAccessToken, setAccessToken } from "../lib/token.js";
 
 interface UserProfile {
   id: string;
@@ -11,40 +11,44 @@ interface UserProfile {
   tier: string;
 }
 
+interface LoginPayload {
+  accessToken: string;
+  user: UserProfile;
+}
+
 export const useAuthStore = defineStore("auth", () => {
   const user = ref<UserProfile | null>(null);
   const isLoggedIn = computed(() => user.value !== null);
 
-  async function smsLogin(phone: string, code: string) {
-    const res = await apiFetch<{ accessToken: string; user: UserProfile }>(
-      "/auth/sms/verify",
-      {
-        method: "POST",
-        body: JSON.stringify({ phone, code }),
-      },
-    );
-    setAccessToken(res.accessToken);
-    user.value = res.user;
+  function applySession(payload: LoginPayload): void {
+    setAccessToken(payload.accessToken);
+    user.value = payload.user;
   }
 
-  async function fetchUser() {
+  async function smsLogin(phone: string, code: string): Promise<void> {
+    const payload = await apiFetch<LoginPayload>("/auth/sms/verify", {
+      method: "POST",
+      body: JSON.stringify({ phone, code }),
+    });
+    applySession(payload);
+  }
+
+  async function fetchUser(): Promise<void> {
     try {
-      const profile = await apiFetch<UserProfile>("/auth/me");
-      user.value = profile;
+      user.value = await apiFetch<UserProfile>("/auth/me");
     } catch {
       user.value = null;
     }
   }
 
-  function logout() {
+  function logout(): void {
     clearTokens();
     user.value = null;
   }
 
-  // Auto-restore session on store init
   if (getAccessToken() && !user.value) {
     void fetchUser();
   }
 
-  return { user, isLoggedIn, smsLogin, fetchUser, logout };
+  return { user, isLoggedIn, applySession, smsLogin, fetchUser, logout };
 });

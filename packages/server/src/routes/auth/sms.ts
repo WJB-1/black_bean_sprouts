@@ -23,7 +23,6 @@ export default async function smsRoutes(fastify: FastifyInstance) {
       await reply.send({ success: true });
     } catch (err) {
       fastify.log.error({ err, phone }, "SMS send failed");
-      // Still return success to prevent phone enumeration
       await reply.send({ success: true });
     }
   });

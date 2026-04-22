@@ -1,6 +1,38 @@
 # 项目进度 — 黑豆芽 (Black Bean Sprouts)
 
-> 最后更新: 2026-04-21
+> 最后更新: 2026-04-22
+
+## 2026-04-22 全量冒烟更新
+
+- 已修复 `doc-schema` 运行时产物 ESM import 缺少 `.js` 后缀的问题。
+- 已完成全量冒烟：
+  - `pnpm typecheck`: **PASS**
+  - `pnpm build`: **PASS**
+  - `doc-schema` runtime validator: **PASS**
+  - `doc-engine` `.docx` render smoke: **PASS**
+  - `agent-runtime` orchestrator smoke: **PASS**
+  - `agent-runtime` tool-call smoke: **PASS**
+  - `server` 源码启动 + `/api/health`: **PASS**
+  - `web` Vite dev server + 首页 HTML: **PASS**
+- 详细模块评估见：`docs/SMOKE_ASSESSMENT.md`
+
+## 2026-04-21 复核更新
+
+- 重新按照 `CLAUDE.md` 要求复核后，发现此前“全部 PASS / 全链路 PASS”与当前代码并不完全一致。
+- 本次已修复的关键问题：
+  - 文档接口错误使用 `ObjectId` 校验，而数据库主键实际为 `cuid()`
+  - 前端新建文档传 `thesis`，后端却要求 `docTypeId`
+  - 导出 Word 时前端未发送 render body
+  - 微信登录没有保留 redirect
+  - Agent SSE 前端解析不完整
+  - 前端多页存在乱码与 UI 一致性问题，已重写为 Apple 风格
+- 本次复核后的最新验证结果：
+  - `server` typecheck / build / health：**PASS**
+  - `web` typecheck / build：**PASS**
+  - `doc-engine` smoke：**PASS**
+  - `agent-runtime` smoke：**PASS**
+  - `doc-schema` runtime smoke：**FAIL**（`dist` 产物 ESM import 缺少 `.js` 后缀）
+- 详细模块评估见：`docs/SMOKE_ASSESSMENT.md`
 
 ## Phase 总览
 

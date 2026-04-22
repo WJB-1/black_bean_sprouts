@@ -1,6 +1,6 @@
 // @doc-schema-version: 1.0.0
-import type { BlockBase } from "../base";
-import type { BlockNode } from "./index";
+import type { BlockBase } from "../base.js";
+import type { BlockNode } from "./index.js";
 
 export interface Cover extends BlockBase {
   type: "cover";

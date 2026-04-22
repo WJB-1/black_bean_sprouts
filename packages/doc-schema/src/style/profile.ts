@@ -1,13 +1,13 @@
 // @doc-schema-version: 1.0.0
-import type { NumberingSchemes } from "./numbering";
-import type { FontFamilies } from "./fonts";
-import type { SectionStyles } from "./section-style";
-import type { ParagraphStyles } from "./paragraph-style";
-import type { FigureStyle } from "./figure-style";
-import type { TableStyle } from "./table-style";
-import type { AbstractStyle } from "./abstract-style";
-import type { CoverStyle } from "./cover-style";
-import type { CitationStyleConfig } from "./citation-style";
+import type { NumberingSchemes } from "./numbering.js";
+import type { FontFamilies } from "./fonts.js";
+import type { SectionStyles } from "./section-style.js";
+import type { ParagraphStyles } from "./paragraph-style.js";
+import type { FigureStyle } from "./figure-style.js";
+import type { TableStyle } from "./table-style.js";
+import type { AbstractStyle } from "./abstract-style.js";
+import type { CoverStyle } from "./cover-style.js";
+import type { CitationStyleConfig } from "./citation-style.js";
 
 export interface StyleProfile {
   id: string;

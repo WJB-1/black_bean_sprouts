@@ -1,46 +1,34 @@
 <template>
-  <figure>
-    <div class="placeholder">[图片: {{ safeAssetId }}]</div>
-    <figcaption v-if="safeCaption">{{ safeCaption }}</figcaption>
+  <figure class="apple-figure">
+    <div class="apple-figure-placeholder">
+      <div style="text-align: center;">
+        <strong>{{ assetLabel }}</strong>
+        <p class="apple-muted" style="margin: 8px 0 0;">
+          {{ node.attrs.layout === "single" ? "单图布局" : `布局：${node.attrs.layout}` }}
+        </p>
+      </div>
+    </div>
+    <figcaption class="apple-caption">
+      {{ node.attrs.caption || "未填写图题" }}
+    </figcaption>
   </figure>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
-import type { FigureNode } from "./types";
+import type { Figure } from "@black-bean-sprouts/doc-schema";
 
-const props = defineProps<{ node: FigureNode }>();
+const props = defineProps<{ node: Figure }>();
 
-const safeAssetId = computed(() => {
-  const asset = props.node.attrs?.asset;
-  if (!asset) return "未知";
-  if (typeof asset === "object" && asset !== null && "assetId" in asset) {
-    return (asset as { assetId?: string }).assetId ?? "subfigures";
+const assetLabel = computed(() => {
+  if (props.node.attrs.asset?.assetId) {
+    return `资源：${props.node.attrs.asset.assetId}`;
   }
-  return "未知";
-});
 
-const safeCaption = computed(() => {
-  const caption = props.node.attrs?.caption;
-  return caption && typeof caption === "string" ? caption : "";
+  if (props.node.attrs.subfigures?.length) {
+    return `子图数量：${props.node.attrs.subfigures.length}`;
+  }
+
+  return "图像资源待补充";
 });
 </script>
-
-<style scoped>
-figure { text-align: center; margin: 16px 0; }
-.placeholder {
-  background: #f0f0f0;
-  padding: 40px;
-  border-radius: 4px;
-  color: #999;
-  min-height: 120px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-figcaption {
-  font-size: 14px;
-  color: #666;
-  margin-top: 8px;
-}
-</style>

@@ -1,76 +1,226 @@
 <template>
-  <div class="agent-chat">
-    <div class="messages" ref="messagesRef">
-      <div v-if="error" class="error-message">{{ error }}</div>
-      <div v-else-if="messages.length === 0 && !streaming" class="empty-state">
-        开始与 Agent 对话，让 AI 帮助你写作
-      </div>
-      <template v-else>
-        <div v-for="msg in messages" :key="msg.id" :class="['message', msg.role]">
-          <div class="bubble">{{ msg.content }}</div>
+  <div class="apple-chat">
+    <div ref="messagesRef" class="apple-chat-messages">
+      <section
+        v-if="messages.length === 0 && !streaming"
+        class="apple-empty"
+        style="min-height: 280px;"
+      >
+        <div>
+          <p class="apple-kicker">Start With Prompt</p>
+          <h3 style="margin-top: 0;">开始和 Agent 协作</h3>
+          <p class="apple-muted">例如：补全摘要、生成目录、把引言改成更学术的语气。</p>
         </div>
-        <div v-if="streaming" class="message assistant">
-          <div class="bubble">
-            <span v-if="streamText">{{ streamText }}</span>
-            <span v-else class="loading-text">正在思考...</span>
-            <span class="cursor">|</span>
+      </section>
+
+      <template v-else>
+        <div
+          v-for="message in messages"
+          :key="message.id"
+          class="apple-chat-row"
+          :class="message.role"
+        >
+          <div class="apple-chat-bubble" :class="message.role">
+            {{ message.content }}
+          </div>
+        </div>
+
+        <div v-if="streaming" class="apple-chat-row assistant">
+          <div class="apple-chat-bubble assistant">
+            {{ streamText || "正在思考…" }}<span class="cursor">|</span>
           </div>
         </div>
       </template>
     </div>
-    <div class="input-area">
+
+    <div class="apple-chat-composer">
+      <p v-if="activityText" class="apple-muted" style="margin: 0;">
+        {{ activityText }}
+      </p>
+
       <n-input
         v-model:value="input"
-        placeholder="告诉 Agent 你想做什么..."
-        @keyup.enter="handleSend"
+        type="textarea"
+        placeholder="告诉 Agent 你想完成什么，例如：生成论文摘要、优化表格说明、润色结论。"
+        :autosize="{ minRows: 2, maxRows: 6 }"
         :disabled="streaming"
-        :maxlength="2000"
-        show-count
+        @keydown="handleComposerKeydown"
       />
-      <n-button type="primary" @click="handleSend" :disabled="!input.trim() || streaming" :loading="streaming">
-        发送
-      </n-button>
+
+      <div class="apple-actions" style="justify-content: space-between; align-items: center;">
+        <span class="apple-muted">Enter 发送 · Shift+Enter 换行</span>
+        <div class="apple-actions">
+          <n-button v-if="streaming" @click="cancelStream">停止</n-button>
+          <n-button
+            type="primary"
+            :disabled="!input.trim() || streaming"
+            :loading="streaming"
+            @click="handleSend"
+          >
+            发送给 Agent
+          </n-button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onUnmounted } from "vue";
-import { useMessage, NInput, NButton } from "naive-ui";
+import { nextTick, onUnmounted, ref, watch } from "vue";
 import { getAccessToken } from "../lib/token.js";
 
-const props = defineProps<{ documentId: string }>();
-const messageApi = useMessage();
+type ChatRole = "user" | "assistant" | "system";
 
 interface ChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: ChatRole;
   content: string;
 }
+
+type ChatEvent =
+  | { type: "session_created"; sessionId: string }
+  | { type: "message_delta"; text: string }
+  | { type: "tool_call_start"; tool: string }
+  | { type: "tool_call_result"; result: { llmVisible: { summary: string } } }
+  | { type: "error"; error: { message: string } }
+  | { type: "done" };
+
+const props = defineProps<{ documentId: string }>();
 
 const messages = ref<ChatMessage[]>([]);
 const input = ref("");
 const streaming = ref(false);
 const streamText = ref("");
+const activityText = ref("");
+const sessionId = ref<string | null>(null);
 const messagesRef = ref<HTMLElement | null>(null);
-const error = ref<string | null>(null);
 
 let abortController: AbortController | null = null;
 
+watch(() => props.documentId, () => {
+  abortController?.abort();
+  messages.value = [];
+  input.value = "";
+  streamText.value = "";
+  activityText.value = "";
+  sessionId.value = null;
+});
+
 onUnmounted(() => {
-  // Cancel any ongoing request when component unmounts
   abortController?.abort();
 });
 
+function generateId(): string {
+  return crypto.randomUUID();
+}
+
+function appendMessage(role: ChatRole, content: string): void {
+  messages.value.push({
+    id: generateId(),
+    role,
+    content,
+  });
+}
+
+function handleComposerKeydown(event: KeyboardEvent): void {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    void handleSend();
+  }
+}
+
+function cancelStream(): void {
+  abortController?.abort();
+}
+
+async function readErrorMessage(res: Response): Promise<string> {
+  const raw = await res.text();
+  if (!raw) {
+    return `请求失败 (${res.status})`;
+  }
+
+  try {
+    const body = JSON.parse(raw) as { error?: { message?: string } };
+    return body.error?.message ?? raw;
+  } catch {
+    return raw;
+  }
+}
+
+async function handleStreamEvent(event: ChatEvent): Promise<void> {
+  switch (event.type) {
+    case "session_created":
+      sessionId.value = event.sessionId;
+      activityText.value = "会话已创建";
+      return;
+    case "message_delta":
+      streamText.value += event.text;
+      await nextTick();
+      scrollToBottom();
+      return;
+    case "tool_call_start":
+      activityText.value = `正在调用工具：${event.tool}`;
+      return;
+    case "tool_call_result":
+      activityText.value = `工具完成：${event.result.llmVisible.summary}`;
+      return;
+    case "error":
+      throw new Error(event.error.message);
+    case "done":
+      activityText.value = activityText.value || "回答完成";
+  }
+}
+
+async function consumeSse(res: Response): Promise<void> {
+  const reader = res.body?.getReader();
+  if (!reader) {
+    throw new Error("无法读取流式响应");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+
+      for (const frame of frames) {
+        const data = frame
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n");
+
+        if (!data || data === "[DONE]") {
+          continue;
+        }
+
+        await handleStreamEvent(JSON.parse(data) as ChatEvent);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 async function handleSend(): Promise<void> {
   const text = input.value.trim();
-  if (!text || streaming.value) return;
+  if (!text || streaming.value) {
+    return;
+  }
 
-  error.value = null;
-  messages.value.push({ id: crypto.randomUUID(), role: "user", content: text });
+  appendMessage("user", text);
   input.value = "";
-  streaming.value = true;
   streamText.value = "";
+  activityText.value = "正在连接 Agent…";
+  streaming.value = true;
 
   await nextTick();
   scrollToBottom();
@@ -91,106 +241,33 @@ async function handleSend(): Promise<void> {
       },
       body: JSON.stringify({
         message: text,
+        sessionId: sessionId.value ?? undefined,
         documentId: props.documentId,
         skillCode: "thesis",
       }),
       signal: abortController.signal,
     });
 
-    // Handle non-SSE errors (401, 403, 404, 500, etc.)
     if (!res.ok) {
-      // Try to parse error response
-      let errorMsg = `请求失败 (${res.status})`;
-      try {
-        const contentType = res.headers.get("content-type");
-        if (contentType?.includes("application/json")) {
-          const body = await res.json() as { error?: { message?: string } };
-          errorMsg = body.error?.message ?? errorMsg;
-        } else {
-          // Non-JSON response (might be HTML error page)
-          errorMsg = res.status === 401 ? "登录已过期，请重新登录" : `服务器错误 (${res.status})`;
-        }
-      } catch {
-        // If parsing fails, use default error
-      }
-      throw new Error(errorMsg);
+      throw new Error(await readErrorMessage(res));
     }
 
-    // Check if response is actually SSE
     const contentType = res.headers.get("content-type");
     if (!contentType?.includes("text/event-stream")) {
-      throw new Error("服务器返回了无效的响应格式");
+      throw new Error("服务端返回的不是流式响应");
     }
 
-    const reader = res.body?.getReader();
-    if (!reader) {
-      throw new Error("无法读取响应流");
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data: ")) continue;
-          if (trimmed === "data: [DONE]") continue;
-
-          const jsonStr = trimmed.slice(6);
-          try {
-            const event = JSON.parse(jsonStr) as { type: string; text?: string; error?: string };
-            if (event.error) {
-              throw new Error(event.error);
-            }
-            if (event.type === "message_delta" && event.text) {
-              streamText.value += event.text;
-              await nextTick();
-              scrollToBottom();
-            }
-          } catch (parseError) {
-            // Skip invalid JSON but log for debugging
-            console.warn("Failed to parse SSE event:", jsonStr, parseError);
-          }
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-
-    // Add the complete message to history
-    messages.value.push({
-      id: crypto.randomUUID(),
-      role: "assistant",
-      content: streamText.value || "（无回复）",
-    });
+    await consumeSse(res);
+    appendMessage(
+      "assistant",
+      streamText.value.trim() || "已完成处理，但当前没有可展示的文本输出。",
+    );
   } catch (err) {
-    // Handle different error types
-    if (err instanceof Error) {
-      if (err.name === "AbortError") {
-        // Request was cancelled, don't show error
-        return;
-      }
-      if (err.message.includes("Failed to fetch") || err.message.includes("NetworkError")) {
-        error.value = "网络连接失败，请检查网络后重试";
-        messageApi.error("网络连接失败");
-      } else {
-        error.value = err.message;
-        messageApi.error(err.message);
-      }
+    if (err instanceof Error && err.name === "AbortError") {
+      appendMessage("system", "本次生成已停止。");
     } else {
-      error.value = "发送失败，请重试";
-      messageApi.error("发送失败，请重试");
+      appendMessage("system", err instanceof Error ? err.message : "发送失败，请稍后再试。");
     }
-    // Remove the user message on error so they can retry
-    messages.value.pop();
   } finally {
     streaming.value = false;
     streamText.value = "";
@@ -201,87 +278,22 @@ async function handleSend(): Promise<void> {
 }
 
 function scrollToBottom(): void {
-  if (messagesRef.value) {
-    messagesRef.value.scrollTop = messagesRef.value.scrollHeight;
+  if (!messagesRef.value) {
+    return;
   }
+
+  messagesRef.value.scrollTop = messagesRef.value.scrollHeight;
 }
 </script>
 
 <style scoped>
-.agent-chat {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-}
-
-.message {
-  margin-bottom: 12px;
-  display: flex;
-}
-
-.message.user {
-  justify-content: flex-end;
-}
-
-.bubble {
-  max-width: 80%;
-  padding: 8px 12px;
-  border-radius: 8px;
-  white-space: pre-wrap;
-  font-size: 14px;
-}
-
-.message.user .bubble {
-  background: #18a058;
-  color: white;
-}
-
-.message.assistant .bubble {
-  background: #f0f0f0;
-}
-
 .cursor {
   animation: blink 1s infinite;
-}
-
-.loading-text {
-  color: #999;
-  font-style: italic;
 }
 
 @keyframes blink {
   50% {
     opacity: 0;
   }
-}
-
-.input-area {
-  display: flex;
-  gap: 8px;
-  padding: 12px;
-  border-top: 1px solid #eee;
-}
-
-.error-message {
-  padding: 16px;
-  background: #fff0f0;
-  border-left: 4px solid #f5222d;
-  color: #f5222d;
-  border-radius: 4px;
-}
-
-.empty-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #999;
-  font-style: italic;
 }
 </style>

@@ -1,30 +1,29 @@
 import type { FastifyInstance } from "fastify";
-import { prisma } from "../../lib/prisma.js";
 import type { Prisma } from "@prisma/client";
+import { prisma } from "../../lib/prisma.js";
 
 export default async function styleProfileRoutes(fastify: FastifyInstance) {
-  // List all style profiles
   fastify.get("/style-profiles", async () => {
-    return await prisma.styleProfile.findMany({
+    return prisma.styleProfile.findMany({
       orderBy: [{ docTypeCode: "asc" }, { name: "asc" }],
     });
   });
 
-  // Get single style profile
   fastify.get<{ Params: { id: string } }>("/style-profiles/:id", async (request, reply) => {
     const { id } = request.params;
     const profile = await prisma.styleProfile.findUnique({
       where: { id },
     });
+
     if (!profile) {
       return reply.status(404).send({
         error: { code: "NOT_FOUND", message: "样式模板不存在" },
       });
     }
+
     return profile;
   });
 
-  // Create style profile
   fastify.post<{
     Body: {
       name: string;
@@ -67,7 +66,8 @@ export default async function styleProfileRoutes(fastify: FastifyInstance) {
         nodes: Prisma.InputJsonValue;
         citation: Prisma.InputJsonValue;
       };
-      return await prisma.styleProfile.create({
+
+      return prisma.styleProfile.create({
         data: {
           name: body.name,
           docTypeCode: body.docTypeCode,
@@ -79,10 +79,9 @@ export default async function styleProfileRoutes(fastify: FastifyInstance) {
           citation: body.citation,
         },
       });
-    }
+    },
   );
 
-  // Update style profile
   fastify.patch<{
     Params: { id: string };
     Body: {
@@ -123,6 +122,7 @@ export default async function styleProfileRoutes(fastify: FastifyInstance) {
         citation?: Prisma.InputJsonValue;
         isActive?: boolean;
       };
+
       const data: Prisma.StyleProfileUpdateInput = {};
       if (body.name !== undefined) data.name = body.name;
       if (body.page !== undefined) data.page = body.page;
@@ -131,6 +131,7 @@ export default async function styleProfileRoutes(fastify: FastifyInstance) {
       if (body.nodes !== undefined) data.nodes = body.nodes;
       if (body.citation !== undefined) data.citation = body.citation;
       if (body.isActive !== undefined) data.isActive = body.isActive;
+
       try {
         return await prisma.styleProfile.update({
           where: { id },
@@ -141,12 +142,12 @@ export default async function styleProfileRoutes(fastify: FastifyInstance) {
           error: { code: "NOT_FOUND", message: "样式模板不存在" },
         });
       }
-    }
+    },
   );
 
-  // Delete style profile
   fastify.delete<{ Params: { id: string } }>("/style-profiles/:id", async (request, reply) => {
     const { id } = request.params;
+
     try {
       await prisma.styleProfile.delete({
         where: { id },

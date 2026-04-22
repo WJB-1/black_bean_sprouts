@@ -1,5 +1,5 @@
 // @doc-schema-version: 1.0.0
-import type { ParagraphStyle } from "./paragraph-style";
+import type { ParagraphStyle } from "./paragraph-style.js";
 
 export interface FigureStyle {
   captionPosition: "below" | "above";

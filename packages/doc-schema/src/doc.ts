@@ -1,10 +1,10 @@
 // @doc-schema-version: 1.0.0
-import type { DocMeta } from "./meta";
-import type { ReferenceItem } from "./resource/reference";
-import type { AssetRef } from "./resource/asset-ref";
-import type { SchemaVersion } from "./version";
-import type { BlockNode } from "./block";
-import type { InlineNode } from "./inline";
+import type { DocMeta } from "./meta.js";
+import type { ReferenceItem } from "./resource/reference.js";
+import type { AssetRef } from "./resource/asset-ref.js";
+import type { SchemaVersion } from "./version.js";
+import type { BlockNode } from "./block/index.js";
+import type { InlineNode } from "./inline/index.js";
 
 /**
  * 顶层文档节点

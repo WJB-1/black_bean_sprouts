@@ -1,5 +1,5 @@
 // @doc-schema-version: 1.0.0
-import type { Person } from "./resource/person";
+import type { Person } from "./resource/person.js";
 
 export interface DocMeta {
   title: string;

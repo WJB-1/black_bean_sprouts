@@ -1,7 +1,7 @@
 import type { Doc } from "@black-bean-sprouts/doc-schema";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
-import { notFound } from "../lib/errors.js";
+import { badRequest, notFound } from "../lib/errors.js";
 
 export async function listDocuments(userId: string) {
   return prisma.document.findMany({
@@ -20,8 +20,26 @@ export async function listDocuments(userId: string) {
 
 export async function getDocument(id: string, userId: string) {
   const doc = await prisma.document.findUnique({ where: { id } });
-  if (!doc || doc.userId !== userId) throw notFound("文档不存在");
+  if (!doc || doc.userId !== userId) {
+    throw notFound("文档不存在");
+  }
   return doc;
+}
+
+async function resolveDocTypeId(input: string): Promise<string> {
+  const docType = await prisma.docType.findFirst({
+    where: {
+      isActive: true,
+      OR: [{ id: input }, { code: input }],
+    },
+    select: { id: true },
+  });
+
+  if (!docType) {
+    throw badRequest("文档类型不存在或已停用");
+  }
+
+  return docType.id;
 }
 
 export async function createDocument(data: {
@@ -30,10 +48,16 @@ export async function createDocument(data: {
   title?: string;
   styleProfileId?: string;
 }) {
+  const resolvedDocTypeId = await resolveDocTypeId(data.docTypeId);
+
   const emptyDoc: Doc = {
     type: "doc",
     schemaVersion: "1.0.0",
-    attrs: { title: data.title ?? "未命名文档", authors: [], docLanguage: "zh" },
+    attrs: {
+      title: data.title ?? "未命名文档",
+      authors: [],
+      docLanguage: "zh",
+    },
     content: [],
     references: {},
     assets: {},
@@ -43,7 +67,7 @@ export async function createDocument(data: {
   return prisma.document.create({
     data: {
       userId: data.userId,
-      docTypeId: data.docTypeId,
+      docTypeId: resolvedDocTypeId,
       ...(data.styleProfileId !== undefined && {
         styleProfileId: data.styleProfileId,
       }),

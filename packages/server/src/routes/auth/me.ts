@@ -15,8 +15,7 @@ export default async function meRoutes(fastify: FastifyInstance) {
         avatarUrl: user.avatarUrl,
         tier: user.tier,
       };
-    } catch (err) {
-      // findById throws 404 if user not found
+    } catch {
       return reply.status(404).send({
         error: { code: "USER_NOT_FOUND", message: "用户不存在" },
       });

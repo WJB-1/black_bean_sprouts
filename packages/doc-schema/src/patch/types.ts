@@ -1,8 +1,8 @@
 // @doc-schema-version: 1.0.0
-import type { BlockNode } from "../block";
-import type { InlineNode } from "../inline";
-import type { ReferenceItem } from "../resource/reference";
-import type { AssetRef } from "../resource/asset-ref";
+import type { BlockNode } from "../block/index.js";
+import type { InlineNode } from "../inline/index.js";
+import type { ReferenceItem } from "../resource/reference.js";
+import type { AssetRef } from "../resource/asset-ref.js";
 
 export type DocumentPatch =
   | { op: "insert_block"; parentId: string; index: number; node: BlockNode }

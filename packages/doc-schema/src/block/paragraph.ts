@@ -1,6 +1,6 @@
 // @doc-schema-version: 1.0.0
-import type { BlockBase } from "../base";
-import type { InlineNode } from "../inline";
+import type { BlockBase } from "../base.js";
+import type { InlineNode } from "../inline/index.js";
 
 export type ParagraphRole =
   | "normal" | "quote" | "code"

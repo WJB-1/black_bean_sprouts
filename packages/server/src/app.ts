@@ -1,6 +1,5 @@
 import Fastify from "fastify";
-import type { FastifyInstance } from "fastify";
-import type { FastifyError } from "@fastify/error";
+import type { FastifyError, FastifyInstance } from "fastify";
 import { loadEnv } from "./env.js";
 import { AppError } from "./lib/errors.js";
 import registerCors from "./plugins/cors.js";
@@ -15,18 +14,15 @@ export async function buildApp(): Promise<FastifyInstance> {
   const env = loadEnv();
   const fastify = Fastify({ logger: env.NODE_ENV === "development" });
 
-  // Plugins
   await registerCors(fastify);
   await registerAuth(fastify);
 
-  // Routes
   await fastify.register(authRoutes, { prefix: "/api/auth" });
   await fastify.register(agentRoutes, { prefix: "/api/agent" });
   await fastify.register(documentRoutes, { prefix: "/api/documents" });
   await fastify.register(renderRoutes, { prefix: "/api/documents" });
   await fastify.register(adminRoutes, { prefix: "/api/admin" });
 
-  // Error handler
   fastify.setErrorHandler((error: FastifyError, _request, reply) => {
     if (error instanceof AppError) {
       void reply.status(error.statusCode).send({
@@ -36,7 +32,6 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     if (error.validation) {
-      // TypeBox validation errors
       void reply.status(400).send({
         error: {
           code: "VALIDATION_ERROR",
@@ -60,7 +55,6 @@ export async function buildApp(): Promise<FastifyInstance> {
     });
   });
 
-  // Health check
   fastify.get("/api/health", async () => ({ status: "ok" }));
 
   return fastify;

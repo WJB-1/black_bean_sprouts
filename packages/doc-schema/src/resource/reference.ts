@@ -1,5 +1,5 @@
 // @doc-schema-version: 1.0.0
-import type { Person } from "./person";
+import type { Person } from "./person.js";
 
 export type ReferenceType =
   | "article-journal" | "article" | "book" | "chapter"

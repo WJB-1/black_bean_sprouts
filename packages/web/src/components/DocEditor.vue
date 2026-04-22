@@ -1,75 +1,65 @@
 <template>
-  <div class="doc-editor" v-if="doc">
-    <h1>{{ docTitle }}</h1>
-    <n-spin :show="loading">
-      <template v-if="content.length === 0">
-        <n-empty description="文档为空，让 Agent 开始写作吧" style="margin-top: 40px">
-          <template #extra>
-            <n-text depth="3" style="font-size: 12px">
-              在右侧 Agent 助手面板输入指令开始创作
-            </n-text>
-          </template>
-        </n-empty>
-      </template>
-      <template v-else>
-        <block-renderer v-for="node in content" :key="node.id" :node="node" />
-      </template>
-    </n-spin>
+  <div v-if="doc" style="padding: 28px 24px 36px;">
+    <article class="apple-paper">
+      <p class="apple-kicker">Preview</p>
+      <h1 class="apple-title" style="font-size: clamp(30px, 3vw, 42px);">
+        {{ title }}
+      </h1>
+      <p v-if="subtitle" class="apple-subtitle" style="margin-top: 10px;">
+        {{ subtitle }}
+      </p>
+
+      <div class="apple-paper-meta">
+        <span class="apple-badge">语言：{{ languageLabel }}</span>
+        <span v-if="doc.attrs.authors.length > 0" class="apple-badge">
+          作者数：{{ doc.attrs.authors.length }}
+        </span>
+        <span v-if="doc.attrs.keywords?.length" class="apple-badge">
+          关键词：{{ doc.attrs.keywords.join(" / ") }}
+        </span>
+      </div>
+
+      <hr class="apple-divider">
+
+      <section v-if="doc.content.length > 0" style="display: grid; gap: 18px;">
+        <block-renderer
+          v-for="node in doc.content"
+          :key="node.id"
+          :node="node"
+        />
+      </section>
+
+      <section v-else class="apple-empty" style="min-height: 260px;">
+        <div>
+          <p class="apple-kicker">Empty Document</p>
+          <h2 class="apple-section-title">文档还是空的</h2>
+          <p class="apple-muted">你可以在右侧对 Agent 说“生成摘要”或“写一个论文目录”。</p>
+        </div>
+      </section>
+    </article>
   </div>
-  <div v-else class="doc-editor-placeholder">
-    <n-empty description="未加载文档" />
+
+  <div v-else class="apple-empty" style="min-height: 100%;">
+    <div>
+      <h3 style="margin-top: 0;">暂未加载文档</h3>
+      <p class="apple-muted">请返回列表页重新选择文档。</p>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { NEmpty, NSpin, NText } from "naive-ui";
+import type { Doc } from "@black-bean-sprouts/doc-schema";
+import { computed } from "vue";
+import { getDocSubtitle, getDocTitle } from "../lib/doc.js";
 import BlockRenderer from "./BlockRenderer.vue";
-import type { BlockNode } from "./renderers/types";
 
 const props = defineProps<{
-  doc: Record<string, unknown> | null;
+  doc: Doc | null;
 }>();
 
-const loading = ref(false);
-
-const docTitle = computed(() => {
-  if (!props.doc) return "未命名文档";
-  const attrs = props.doc["attrs"] as Record<string, unknown> | undefined;
-  return (attrs?.["title"] as string) ?? "未命名文档";
-});
-
-const content = computed((): BlockNode[] => {
-  if (!props.doc) return [];
-  const content = props.doc["content"];
-  if (!content) return [];
-  if (!Array.isArray(content)) {
-    console.warn("DocEditor: content is not an array", content);
-    return [];
-  }
-  return content as BlockNode[];
-});
+const title = computed(() => getDocTitle(props.doc));
+const subtitle = computed(() => getDocSubtitle(props.doc));
+const languageLabel = computed(() => (
+  props.doc?.attrs.docLanguage === "en" ? "English" : "中文"
+));
 </script>
-
-<style scoped>
-.doc-editor {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 24px;
-  background: white;
-  min-height: 100vh;
-  box-shadow: 0 0 20px rgba(0,0,0,0.05);
-}
-.doc-editor-placeholder {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 24px;
-  background: white;
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-h1 { text-align: center; margin-bottom: 24px; }
-.unsupported { color: #999; font-style: italic; padding: 8px; }
-</style>

@@ -1,6 +1,6 @@
 // @doc-schema-version: 1.0.0
 import { Type } from "@sinclair/typebox";
-import { InlineNodeSchema } from "./inline-schemas";
+import { InlineNodeSchema } from "./inline-schemas.js";
 
 // ── Block Schemas ──
 

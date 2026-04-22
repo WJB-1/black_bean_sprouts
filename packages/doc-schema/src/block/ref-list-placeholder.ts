@@ -1,5 +1,5 @@
 // @doc-schema-version: 1.0.0
-import type { BlockBase } from "../base";
+import type { BlockBase } from "../base.js";
 
 export interface ReferenceListPlaceholder extends BlockBase {
   type: "reference_list_placeholder";

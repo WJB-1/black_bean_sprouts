@@ -1,9 +1,9 @@
 // @doc-schema-version: 1.0.0
 import { Type } from "@sinclair/typebox";
-import { PersonSchema } from "./resource-schemas";
-import { ReferenceItemSchema, AssetRefSchema } from "./resource-schemas";
-import { InlineNodeSchema } from "./inline-schemas";
-import { BlockNodeSchema } from "./block-schemas";
+import { PersonSchema } from "./resource-schemas.js";
+import { ReferenceItemSchema, AssetRefSchema } from "./resource-schemas.js";
+import { InlineNodeSchema } from "./inline-schemas.js";
+import { BlockNodeSchema } from "./block-schemas.js";
 
 // ── DocMeta Schema ──
 
