@@ -6,6 +6,10 @@
   "scripts": {
     "build": "pnpm -r run build",
     "build:libs": "pnpm --filter @black-bean-sprouts/doc-schema build && pnpm --filter @black-bean-sprouts/agent-runtime build && pnpm --filter @black-bean-sprouts/doc-engine build && pnpm --filter @black-bean-sprouts/xiaolongxia-kernel build",
+    "smoke:doc-engine": "pnpm --filter @black-bean-sprouts/server exec tsx ../../packages/doc-engine/tests/render-test.ts",
+    "smoke:document-patch-api": "pnpm --filter @black-bean-sprouts/server exec tsx ../../scripts/smoke/document-patch-api.ts",
+    "smoke:agent-patch": "pnpm --filter @black-bean-sprouts/server exec tsx ../../scripts/smoke/agent-patch.ts",
+    "smoke": "pnpm --filter @black-bean-sprouts/doc-schema smoke:patch && pnpm --filter @black-bean-sprouts/agent-runtime smoke:patch-tool && pnpm run smoke:doc-engine && pnpm run smoke:document-patch-api && pnpm run smoke:agent-patch",
     "lint": "eslint packages/*/src --ext .ts",
     "typecheck": "pnpm run build:libs && pnpm --filter @black-bean-sprouts/doc-schema run _typecheck && pnpm --filter @black-bean-sprouts/agent-runtime run _typecheck && pnpm --filter @black-bean-sprouts/doc-engine run _typecheck && pnpm --filter @black-bean-sprouts/web run _typecheck && pnpm --filter @black-bean-sprouts/xiaolongxia-kernel run _typecheck && pnpm --filter @black-bean-sprouts/server run _typecheck",
     "clean": "pnpm -r run clean",

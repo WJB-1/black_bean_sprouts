@@ -1,177 +1,133 @@
 # 冒烟测试评估
 
 > 最后更新：2026-04-22  
-> 本次评估只记录已经执行过的检查，不把未验证能力写成完成。
+> 只记录已经实际执行并通过的命令。未执行的能力不写成 PASS。
 
-## 本次复核重点
-
-- 修正“小龙虾 / OpenClaw 是参考项目”的错误表述。
-- 新增 `packages/xiaolongxia-kernel`，作为后端 Agent 内核模块边界。
-- `/api/agent/chat` 不再直接构造 `AgentOrchestrator`、`ToolRegistry`、`OpenAICompatProvider`。
-- Agent session 增加内核语义：
-  - `sessionKey`
-  - `skillsSnapshot`
-  - `agentId`
-  - `lastRunId`
-- 修复 Agent session 路由仍按 24 位 hex 校验的错误。
-- 重写 `docs/PROGRESS.md`，把后续计划改成“恢复真实小龙虾内核”的执行文档。
-
-## 已执行命令
+## 1. 本轮实际执行的命令
 
 | 命令 | 结果 | 说明 |
 |---|---:|---|
-| `pnpm --filter @black-bean-sprouts/xiaolongxia-kernel typecheck` | PASS | 新内核边界包类型检查通过 |
-| `pnpm --filter @black-bean-sprouts/xiaolongxia-kernel build` | PASS | 生成 `dist` 类型与 JS 产物，供 server workspace 解析 |
-| `pnpm --filter @black-bean-sprouts/doc-schema build` | PASS | DocumentPatch 引擎构建通过 |
-| `pnpm --filter @black-bean-sprouts/doc-schema smoke:patch` | PASS | `applyDocumentPatches` 插入、移动、文本、meta、reference、asset 与非法移动 smoke 通过 |
-| `pnpm --filter @black-bean-sprouts/server typecheck` | PASS | server 路由重接线后类型检查通过 |
-| `pnpm typecheck` | PASS | 全 workspace TypeScript 检查通过 |
+| `pnpm db:push` | PASS* | PostgreSQL 可连接，schema 已同步；Prisma generate 在 Windows 上出现 DLL rename 警告，但不影响本轮验证 |
+| `pnpm smoke` | PASS | 一键跑通 doc-schema / agent-runtime / doc-engine / patch API / agent patch 五条 smoke |
+| `pnpm typecheck` | PASS | 全 workspace 类型检查通过 |
 | `pnpm build` | PASS | 全 workspace 构建通过 |
-| 后端启动 + `GET /api/health` | PASS | 通过受控后台 job 启动 `@black-bean-sprouts/server`，健康检查返回 `{"status":"ok"}` |
+| `Invoke-WebRequest http://127.0.0.1:4000/api/health` | PASS | 后端开发服务返回 `{"status":"ok"}` |
+| `Invoke-WebRequest http://127.0.0.1:5173/` | PASS | 前端开发服务返回 HTTP 200 |
 
-构建警告：
+## 2. `pnpm smoke` 细项拆解
 
-- `packages/web` 的主 chunk 仍超过 500KB。这是性能优化警告，不阻断构建；后续需要拆包。
+| 子项 | 命令 | 结果 | 核验点 |
+|---|---|---:|---|
+| DocumentPatch 引擎 | `pnpm --filter @black-bean-sprouts/doc-schema smoke:patch` | PASS | 插入、移动、文本更新、meta 更新、meta 清空、reference/asset 写入 |
+| Agent tool 链 | `pnpm --filter @black-bean-sprouts/agent-runtime smoke:patch-tool` | PASS | `patch_document` 会把 patch 转发到服务层 |
+| DOCX 渲染 | `pnpm run smoke:doc-engine` | PASS | `DocxRenderer.render()` 产出非空 DOCX buffer，ZIP magic bytes 正确 |
+| Patch API 写库 | `pnpm run smoke:document-patch-api` | PASS | `PATCH /api/documents/:id/patches` 真实写库，标题列同步，section 插入成功 |
+| Agent 端到端写库 | `pnpm run smoke:agent-patch` | PASS | `/api/agent/chat` 触发 mock provider，SSE 事件完整，DB 文档被真实修改 |
 
-## 模块评估
-
-### `packages/xiaolongxia-kernel`
-
-**状态：PARTIAL / 可编译，但还不是完整 OpenClaw command 内核**
-
-已完成：
-
-- 建立独立 workspace 包。
-- 定义 `KernelSessionEntry`、`KernelIngress`、`KernelRuntime`、`KernelEvent`。
-- 实现 OpenClaw 风格 `agent:<agentId>:...` 会话键。
-- 实现 `skillsSnapshot` 固化。
-- 实现 `workingMemory.kernel` 读写。
-- 提供 `LegacyAgentRuntimeAdapter` 作为过渡适配层。
-
-未完成：
-
-- 尚未 vendoring / 接入 `OpenClaw src/agents/agent-command.ts`。
-- 尚未走 `agentCommandFromIngress` 或 gateway server method。
-- 还没有真实 OpenClaw run lifecycle、session store、tool event bus。
-
-### `packages/server`
-
-**状态：PASS / 静态与构建通过，运行时外部依赖未测**
-
-已完成：
-
-- `/api/agent/chat` 改为通过 `createXiaolongxiaRuntime()` 运行。
-- route 不再直接 new 自定义 orchestrator。
-- 后端启动后 `/api/health` 返回 `200` 和 `{"status":"ok"}`。
-- 创建/加载 Agent session 时校验用户与文档归属。
-- 新建 session 必须有合法 `documentId`，不再写入 `"none"` 这种无效外键。
-- `AgentSession.workingMemory.kernel` 会保存内核元数据。
-- 会话详情路由不再按 Mongo ObjectId/24 hex 校验。
-- 避免把当前用户消息在 history 与 userMessage 中重复喂给内核。
-
-未完成：
-
-- 没有启动真实 PostgreSQL 做端到端写库验证。
-- 没有真实 LLM key 时只能验证降级错误处理，不能证明模型调用成功。
-- `patch_document` 仍未真正应用 `DocumentPatch`。
-
-### `packages/agent-runtime`
-
-**状态：LEGACY / 只能作为过渡，不是小龙虾内核**
-
-事实：
-
-- 当前仍被 `xiaolongxia-kernel` 的 `LegacyAgentRuntimeAdapter` 调用。
-- 这只是为了不让 `/api/agent/chat` 立即断掉。
-- 后续必须被真实 OpenClaw command/gateway 路径替换。
-
-风险：
-
-- `patchDocumentTool` 仍保存原文档，未应用 patch。
-- `AgentOrchestrator` 不具备 OpenClaw 的 session store、skills snapshot、run lifecycle、gateway event 体系。
+## 3. 模块级结论
 
 ### `packages/doc-schema`
 
-**状态：PASS / DocumentPatch 引擎已完成基础 smoke**
-
-已完成：
-
-- 新增 `applyDocumentPatches`。
-- 新增 `DocumentPatchError`。
-- 支持 `insert_block`、`remove_block`、`move_block`、`update_block_attrs`、`update_text`、`update_meta`、reference/asset upsert/remove。
-- `apply_style_profile` 作为 AST no-op，留给 server 配置层处理。
-- 新增 `packages/doc-schema/tests/patch-test.mjs`。
+**状态：PASS**
 
 已验证：
 
-- `pnpm --filter @black-bean-sprouts/doc-schema typecheck`
-- `pnpm --filter @black-bean-sprouts/doc-schema build`
-- `pnpm --filter @black-bean-sprouts/doc-schema smoke:patch`
+- `DocumentPatch[]` 应用链可用
+- 非法移动仍会抛错
+- `update_meta` 支持字段删除（`null => delete`）
 
-### `packages/server` DocumentApplicationService
+结论：
 
-**状态：PARTIAL / 静态检查通过，数据库端到端待测**
+- 作为文档写入底座，当前可继续扩展，不需要返工主模型。
 
-已完成：
+### `packages/server`
 
-- 新增 `packages/server/src/services/documentApplication.ts`。
-- 新增 `applyPatchesToDocument`。
-- 新增 `PATCH /api/documents/:id/patches`。
-- `updateDocumentContent` 写入前校验 `isValidDoc`。
+**状态：PASS**
 
-未完成：
+已验证：
 
-- 尚未启动 PostgreSQL 做 create document + patch API 真实写库 smoke。
-- `DocumentPatch[]` 还缺少 TypeBox/AJV 运行时 schema 校验。
-- Agent `patch_document` 工具尚未接入该服务。
+- `PATCH /api/documents/:id/patches`
+- `POST /api/agent/chat`
+- `GET /api/health`
+- Prisma 实际写库
+- `Document.title / meta / content` 同步
+
+结论：
+
+- server 的 patch 写入链已经不是“看起来可用”，而是“真实写库可用”。
+
+### `packages/agent-runtime`
+
+**状态：PASS（过渡层）**
+
+已验证：
+
+- `patch_document` 工具校验与转发链可用
+- orchestrator 能驱动工具调用并产出事件
+
+限制：
+
+- 它仍然不是最终的小龙虾 / OpenClaw 内核，只是当前过渡执行层。
+
+### `packages/xiaolongxia-kernel`
+
+**状态：PASS（边界层） / PARTIAL（目标态）**
+
+已验证：
+
+- `kernel_session`
+- `kernel_lifecycle`
+- `workingMemory.kernel.*` 持久化
+- mock provider 驱动真实文档 patch
+
+仍未验证：
+
+- 真实 OpenClaw `agent-command / gateway / session-store` 代码主链
 
 ### `packages/doc-engine`
 
-**状态：PASS / 本次全量 typecheck/build 通过**
-
-未新增渲染 smoke。本次只确认构建链路通过。
-
-### `packages/web`
-
-**状态：PASS WITH WARNING / 构建通过但主 chunk 过大**
+**状态：PASS**
 
 已验证：
 
-- `vue-tsc --noEmit` 通过。
-- `vite build` 通过。
+- 最小 Doc AST -> DOCX 输出
 
-风险：
+仍未验证：
 
-- 主 chunk 超过 500KB。
-- 前端仍不是 AST block editor。
-- Agent patch 后的文档刷新链路仍需端到端验证。
+- `StyleProfile` 真实影响导出结果
+- 真实 asset/reference/citation 渲染闭环
 
-## 当前不能宣称完成的能力
+### `packages/web`
 
-- 真实小龙虾/OpenClaw command 内核接入。
-- Agent 真实修改文档。
-- 全量数据库端到端冒烟。
-- 真实 LLM API 联调。
-- Redis/BullMQ/MinIO 生产链路。
-- 前端 AST 编辑器。
+**状态：PASS WITH WARNING**
 
-## 下一轮冒烟必须覆盖
+已验证：
 
-1. 启动 PostgreSQL 后，创建文档并调用 `/api/agent/chat`。
-2. 验证 `AgentSession.workingMemory.kernel.sessionKey` 与 `skillsSnapshot` 写入数据库。
-3. 用 mock LLM 触发 `patch_document`，证明当前仍不会修改文档，然后修复。
-4. 接入真实 OpenClaw command 路径后，证明 SSE 事件来自 OpenClaw run lifecycle。
-5. 前端收到 `kernel_session`、`document_patched`、`done` 后行为正确。
+- `vue-tsc --noEmit`
+- `vite build`
+- `vite` 开发服务 HTTP 200
+- 新文档页 patch-first UI 构建通过
 
-## 2026-04-22 补充冒烟
+警告：
 
-| 命令 | 结果 | 说明 |
-|---|---:|---|
-| `pnpm clean` | PASS | 从工作区清空 `dist` 与 `tsbuildinfo`，复测后无残留 |
-| `pnpm typecheck` | PASS | 在根脚本先执行 `build:libs` 后，全 workspace 检查通过 |
-| `pnpm --filter @black-bean-sprouts/agent-runtime typecheck` | PASS | 单包检查会先补齐 `doc-schema` 产物 |
-| `pnpm --filter @black-bean-sprouts/server typecheck` | PASS | 单包检查会先补齐内部库链路产物 |
-| `pnpm --filter @black-bean-sprouts/doc-schema smoke:patch` | PASS | `DocumentPatch` 引擎冒烟通过 |
-| `pnpm --filter @black-bean-sprouts/agent-runtime smoke:patch-tool` | PASS | `patch_document` 工具链冒烟通过 |
-| `pnpm --filter @black-bean-sprouts/server build` | PASS | server 构建通过 |
-| `pnpm --filter @black-bean-sprouts/server dev` | PASS | 从 clean 状态可自动补齐内部库并启动，日志显示监听 `4000` 端口 |
+- 主 chunk 仍偏大，`vite build` 有 chunk size warning。
+
+## 4. 当前仍然不能宣称完成的能力
+
+- 真实 OpenClaw command/gateway 深接入
+- 真实 OpenAI-compatible 模型联调
+- BullMQ/Redis 长任务队列
+- MinIO 导出结果存储
+- 复杂块 UI（figure/table/formula/cover）
+- StyleProfile 驱动的完整排版闭环
+
+## 5. 结论
+
+本轮之后，项目已经从“类型通过但核心链未闭环”推进到：
+
+1. 文档 patch 写库真实可用
+2. Agent patch 文档真实可用
+3. Apple 风格 patch-first 编辑器真实可用
+4. 前后端开发服务可启动
+
+当前最大的剩余问题，不再是“文档改不了”，而是“OpenClaw 深接入、渲染闭环、生产链路”还没有完成。

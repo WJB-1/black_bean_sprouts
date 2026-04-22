@@ -1,6 +1,8 @@
+// @doc-schema-version: 1.0.0
 import { nanoid } from "nanoid";
 import type { LLMMessage, LLMToolCall } from "../llm/types.js";
 import type { StreamEvent, ToolResult } from "../types.js";
+import type { ToolCall } from "../observer.js";
 import type { ToolContext } from "../tools/types.js";
 import type { OrchestratorConfig, OrchestratorRunOptions } from "./types.js";
 
@@ -13,12 +15,22 @@ export class AgentOrchestrator {
 
   async *run(options: OrchestratorRunOptions): AsyncGenerator<StreamEvent> {
     const { provider, registry, skill, observer } = this.config;
+    const messageId = nanoid();
     const ctx: ToolContext = {
       docId: options.docId,
       userId: options.userId,
       sessionId: options.sessionId,
       services: options.services,
     };
+
+    if (observer) {
+      await observer.onMessageStart({
+        sessionId: options.sessionId,
+        messageId,
+        userId: options.userId,
+        timestamp: Date.now(),
+      });
+    }
 
     const messages: LLMMessage[] = [
       { role: "system", content: skill.systemPrompt },
@@ -33,83 +45,122 @@ export class AgentOrchestrator {
       }>;
       signal?: AbortSignal;
     } = {
-      tools: registry.list().map((t) => ({
+      tools: registry.list().map((tool) => ({
         type: "function" as const,
-        function: { name: t.name, description: t.description, parameters: t.parameters },
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+        },
       })),
+      ...(options.signal !== undefined && { signal: options.signal }),
     };
 
-    if (options.signal !== undefined) {
-      chatOptions.signal = options.signal;
-    }
+    try {
+      for (let turn = 0; turn < this.config.maxTurns; turn++) {
+        const response = await provider.chat(messages, chatOptions);
 
-    for (let turn = 0; turn < this.config.maxTurns; turn++) {
-      // Call LLM
-      const response = await provider.chat(messages, chatOptions);
+        if (response.content) {
+          yield { id: nanoid(), type: "message_delta", text: response.content };
+        }
 
-      if (observer) {
-        await observer.onMessageEnd(
-          { sessionId: options.sessionId, messageId: nanoid(), userId: options.userId, timestamp: Date.now() },
-          { inputTokens: response.usage?.inputTokens ?? 0, outputTokens: response.usage?.outputTokens ?? 0, model: "" },
-        );
-      }
-
-      // Yield content delta
-      if (response.content) {
-        yield { id: nanoid(), type: "message_delta", text: response.content };
-      }
-
-      // No tool calls -> done
-      if (!response.toolCalls || response.toolCalls.length === 0) {
-        yield {
-          id: nanoid(),
-          type: "done",
-          usage: {
+        if (!response.toolCalls || response.toolCalls.length === 0) {
+          const usage = {
             inputTokens: response.usage?.inputTokens ?? 0,
             outputTokens: response.usage?.outputTokens ?? 0,
             model: "",
-          },
-        };
-        return;
-      }
-
-      // Add assistant message with tool calls
-      messages.push({
-        role: "assistant",
-        content: response.content,
-        toolCalls: response.toolCalls,
-      });
-
-      // Execute each tool call
-      for (const toolCall of response.toolCalls) {
-        yield { id: nanoid(), type: "tool_call_start", tool: toolCall.name, args: undefined };
-
-        const args = parseToolArgs(toolCall);
-        const result: ToolResult = await registry.execute(toolCall.name, args, ctx);
-
-        yield { id: nanoid(), type: "tool_call_result", result };
-
-        // Yield effects
-        if (result.effects) {
-          for (const effect of result.effects) {
-            if (effect.type === "document_patch") {
-              yield { id: nanoid(), type: "document_patched", patch: effect.patch };
-            } else if (effect.type === "job_submitted") {
-              yield { id: nanoid(), type: "job_submitted", jobId: effect.jobId };
-            }
+          };
+          if (observer) {
+            await observer.onMessageEnd({
+              sessionId: options.sessionId,
+              messageId,
+              userId: options.userId,
+              timestamp: Date.now(),
+            }, usage);
           }
+          yield { id: nanoid(), type: "done", usage };
+          return;
         }
 
-        // Feed result back to LLM
         messages.push({
-          role: "tool",
-          content: JSON.stringify(result.llmVisible),
-          toolCallId: toolCall.id,
+          role: "assistant",
+          content: response.content,
+          toolCalls: response.toolCalls,
         });
-      }
-    }
 
-    yield { id: nanoid(), type: "done", usage: { inputTokens: 0, outputTokens: 0, model: "" } };
+        for (const toolCall of response.toolCalls) {
+          const parsedArgs = parseToolArgs(toolCall);
+          const observerCall: ToolCall = {
+            id: toolCall.id,
+            tool: toolCall.name,
+            args: parsedArgs,
+          };
+          if (observer) {
+            await observer.onToolCall({
+              sessionId: options.sessionId,
+              messageId,
+              userId: options.userId,
+              timestamp: Date.now(),
+            }, observerCall);
+          }
+
+          yield {
+            id: nanoid(),
+            type: "tool_call_start",
+            tool: toolCall.name,
+            args: parsedArgs,
+          };
+
+          const result: ToolResult = await registry.execute(toolCall.name, parsedArgs, ctx);
+          if (observer) {
+            await observer.onToolResult({
+              sessionId: options.sessionId,
+              messageId,
+              userId: options.userId,
+              timestamp: Date.now(),
+            }, observerCall, result);
+          }
+
+          yield { id: nanoid(), type: "tool_call_result", result };
+
+          if (result.effects) {
+            for (const effect of result.effects) {
+              if (effect.type === "document_patch") {
+                yield { id: nanoid(), type: "document_patched", patch: effect.patch };
+              } else if (effect.type === "job_submitted") {
+                yield { id: nanoid(), type: "job_submitted", jobId: effect.jobId };
+              }
+            }
+          }
+
+          messages.push({
+            role: "tool",
+            content: JSON.stringify(result.llmVisible),
+            toolCallId: toolCall.id,
+          });
+        }
+      }
+
+      if (observer) {
+        await observer.onMessageEnd({
+          sessionId: options.sessionId,
+          messageId,
+          userId: options.userId,
+          timestamp: Date.now(),
+        }, { inputTokens: 0, outputTokens: 0, model: "" });
+      }
+      yield { id: nanoid(), type: "done", usage: { inputTokens: 0, outputTokens: 0, model: "" } };
+    } catch (error) {
+      if (observer && error instanceof Error) {
+        await observer.onError({
+          sessionId: options.sessionId,
+          messageId,
+          userId: options.userId,
+          timestamp: Date.now(),
+        }, error);
+      }
+      throw error;
+    }
   }
 }
 

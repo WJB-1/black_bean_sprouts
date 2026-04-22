@@ -1,3 +1,4 @@
+// @doc-schema-version: 1.0.0
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
@@ -16,6 +17,10 @@ const EnvSchema = Type.Object({
   WECHAT_REDIRECT_URI: Type.Optional(Type.String()),
 
   // LLM Provider (OpenAI-compatible API)
+  LLM_MODE: Type.Union([
+    Type.Literal("openai_compat"),
+    Type.Literal("mock"),
+  ], { default: "openai_compat" }),
   LLM_BASE_URL: Type.String({ default: "https://api.deepseek.com/v1" }),
   LLM_API_KEY: Type.String({ default: "" }),
   LLM_MODEL: Type.String({ default: "deepseek-chat" }),

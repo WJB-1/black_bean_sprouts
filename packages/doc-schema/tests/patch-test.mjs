@@ -6,6 +6,7 @@ const baseDoc = {
   schemaVersion: "1.0.0",
   attrs: {
     title: "Patch Smoke",
+    subtitle: "Draft Subtitle",
     authors: [],
     docLanguage: "zh",
   },
@@ -74,6 +75,12 @@ const nextDoc = applyDocumentPatches(baseDoc, [
     },
   },
   {
+    op: "update_meta",
+    meta: {
+      subtitle: null,
+    },
+  },
+  {
     op: "apply_style_profile",
     profileId: "style-1",
   },
@@ -83,6 +90,9 @@ const movedParagraph = nextDoc.content[1]?.content?.[0];
 
 if (nextDoc.attrs.title !== "Patch Smoke Updated") {
   throw new Error("meta patch failed");
+}
+if ("subtitle" in nextDoc.attrs) {
+  throw new Error("meta field clearing failed");
 }
 if (!movedParagraph || movedParagraph.type !== "paragraph") {
   throw new Error("move_block failed");

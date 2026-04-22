@@ -10,4 +10,13 @@ export type KernelSessionEvent = {
   skillsSnapshot: readonly string[];
 };
 
-export type KernelEvent = StreamEvent | KernelSessionEvent;
+export type KernelLifecycleEvent = {
+  id: string;
+  type: "kernel_lifecycle";
+  runId: string;
+  phase: "start" | "end" | "error";
+  sessionKey: string;
+  message?: string;
+};
+
+export type KernelEvent = StreamEvent | KernelSessionEvent | KernelLifecycleEvent;

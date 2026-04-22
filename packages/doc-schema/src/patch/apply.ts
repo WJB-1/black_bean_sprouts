@@ -32,7 +32,7 @@ function applyDocumentPatch(doc: Doc, patch: DocumentPatch): void {
       updateParagraphText(doc.content, patch.paragraphId, patch.content);
       return;
     case "update_meta":
-      Object.assign(doc.attrs, patch.meta);
+      updateDocMeta(doc, patch.meta);
       return;
     case "upsert_reference":
       doc.references[patch.ref.id] = structuredClone(patch.ref);
@@ -48,6 +48,16 @@ function applyDocumentPatch(doc: Doc, patch: DocumentPatch): void {
       return;
     case "apply_style_profile":
       return;
+  }
+}
+
+function updateDocMeta(doc: Doc, meta: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(meta)) {
+    if (value === null) {
+      Reflect.deleteProperty(doc.attrs, key);
+      continue;
+    }
+    Reflect.set(doc.attrs, key, value);
   }
 }
 

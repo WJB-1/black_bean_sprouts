@@ -1,37 +1,23 @@
-import type { Doc } from "@black-bean-sprouts/doc-schema";
+// @doc-schema-version: 1.0.0
+import type { Doc, DocumentPatch } from "@black-bean-sprouts/doc-schema";
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { apiFetch } from "../lib/api.js";
 import { getAccessToken } from "../lib/token.js";
 
-interface DocumentSummary {
+type DocumentSummary = {
   id: string;
   title: string | null;
   status: string;
   docTypeId: string;
   createdAt: string;
   updatedAt: string;
-}
+};
 
-interface DocumentDetail extends DocumentSummary {
+type DocumentDetail = DocumentSummary & {
   content: Doc;
   meta: Record<string, unknown>;
-}
-
-async function readBinaryError(res: Response): Promise<string> {
-  const raw = await res.text();
-
-  if (!raw) {
-    return `请求失败 (${res.status})`;
-  }
-
-  try {
-    const body = JSON.parse(raw) as { error?: { message?: string } };
-    return body.error?.message ?? raw;
-  } catch {
-    return raw;
-  }
-}
+};
 
 export const useDocumentStore = defineStore("document", () => {
   const documents = ref<DocumentSummary[]>([]);
@@ -51,47 +37,43 @@ export const useDocumentStore = defineStore("document", () => {
     loading.value = true;
     try {
       currentDoc.value = await apiFetch<DocumentDetail>(`/documents/${id}`);
-    } catch (err) {
+    } catch (error) {
       currentDoc.value = null;
-      throw err;
+      throw error;
     } finally {
       loading.value = false;
     }
   }
 
   async function createDocument(docTypeId: string, title?: string): Promise<DocumentDetail> {
-    const doc = await apiFetch<DocumentDetail>("/documents", {
+    const document = await apiFetch<DocumentDetail>("/documents", {
       method: "POST",
       body: JSON.stringify({ docTypeId, title }),
     });
-    documents.value.unshift(doc);
-    return doc;
+    documents.value.unshift(toSummary(document));
+    return document;
   }
 
   async function updateContent(id: string, content: Doc): Promise<void> {
-    const updated = await apiFetch<DocumentDetail>(`/documents/${id}`, {
+    const document = await apiFetch<DocumentDetail>(`/documents/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ content }),
     });
+    syncDocument(document);
+  }
 
-    currentDoc.value = updated;
-    documents.value = documents.value.map((doc) => (
-      doc.id === updated.id
-        ? {
-          id: updated.id,
-          title: updated.title,
-          status: updated.status,
-          docTypeId: updated.docTypeId,
-          createdAt: updated.createdAt,
-          updatedAt: updated.updatedAt,
-        }
-        : doc
-    ));
+  async function applyPatches(id: string, patches: readonly DocumentPatch[]): Promise<DocumentDetail> {
+    const document = await apiFetch<DocumentDetail>(`/documents/${id}/patches`, {
+      method: "PATCH",
+      body: JSON.stringify({ patches }),
+    });
+    syncDocument(document);
+    return document;
   }
 
   async function deleteDocument(id: string): Promise<void> {
     await apiFetch(`/documents/${id}`, { method: "DELETE" });
-    documents.value = documents.value.filter((doc) => doc.id !== id);
+    documents.value = documents.value.filter((document) => document.id !== id);
     if (currentDoc.value?.id === id) {
       currentDoc.value = null;
     }
@@ -103,26 +85,30 @@ export const useDocumentStore = defineStore("document", () => {
       throw new Error("请先登录");
     }
 
-    const res = await fetch(`/api/documents/${id}/render`, {
+    const response = await fetch(`/api/documents/${id}/render`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ format: "docx" }),
       ...(signal !== undefined && { signal }),
     });
 
-    if (!res.ok) {
-      throw new Error(await readBinaryError(res));
+    if (!response.ok) {
+      throw new Error(await readBinaryError(response));
     }
-
-    const contentType = res.headers.get("content-type");
-    if (contentType?.includes("application/json")) {
-      throw new Error(await readBinaryError(res));
+    if (response.headers.get("content-type")?.includes("application/json")) {
+      throw new Error(await readBinaryError(response));
     }
+    return response.blob();
+  }
 
-    return res.blob();
+  function syncDocument(document: DocumentDetail): void {
+    currentDoc.value = document;
+    documents.value = documents.value.some((item) => item.id === document.id)
+      ? documents.value.map((item) => item.id === document.id ? toSummary(document) : item)
+      : [toSummary(document), ...documents.value];
   }
 
   return {
@@ -133,7 +119,33 @@ export const useDocumentStore = defineStore("document", () => {
     fetchDoc,
     createDocument,
     updateContent,
+    applyPatches,
     deleteDocument,
     renderDocument,
   };
 });
+
+function toSummary(document: DocumentDetail): DocumentSummary {
+  return {
+    id: document.id,
+    title: document.title,
+    status: document.status,
+    docTypeId: document.docTypeId,
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+  };
+}
+
+async function readBinaryError(response: Response): Promise<string> {
+  const raw = await response.text();
+  if (!raw) {
+    return `Request failed (${response.status})`;
+  }
+
+  try {
+    const body = JSON.parse(raw) as { error?: { message?: string } };
+    return body.error?.message ?? raw;
+  } catch {
+    return raw;
+  }
+}
