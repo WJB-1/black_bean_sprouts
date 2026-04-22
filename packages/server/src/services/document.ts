@@ -1,7 +1,8 @@
-import type { Doc } from "@black-bean-sprouts/doc-schema";
+// @doc-schema-version: 1.0.0
+import { isValidDoc, type Doc } from "@black-bean-sprouts/doc-schema";
 import type { Prisma } from "@prisma/client";
-import { prisma } from "../lib/prisma.js";
 import { badRequest, notFound } from "../lib/errors.js";
+import { prisma } from "../lib/prisma.js";
 
 export async function listDocuments(userId: string) {
   return prisma.document.findMany({
@@ -19,27 +20,11 @@ export async function listDocuments(userId: string) {
 }
 
 export async function getDocument(id: string, userId: string) {
-  const doc = await prisma.document.findUnique({ where: { id } });
-  if (!doc || doc.userId !== userId) {
+  const document = await prisma.document.findUnique({ where: { id } });
+  if (!document || document.userId !== userId) {
     throw notFound("文档不存在");
   }
-  return doc;
-}
-
-async function resolveDocTypeId(input: string): Promise<string> {
-  const docType = await prisma.docType.findFirst({
-    where: {
-      isActive: true,
-      OR: [{ id: input }, { code: input }],
-    },
-    select: { id: true },
-  });
-
-  if (!docType) {
-    throw badRequest("文档类型不存在或已停用");
-  }
-
-  return docType.id;
+  return document;
 }
 
 export async function createDocument(data: {
@@ -49,7 +34,6 @@ export async function createDocument(data: {
   styleProfileId?: string;
 }) {
   const resolvedDocTypeId = await resolveDocTypeId(data.docTypeId);
-
   const emptyDoc: Doc = {
     type: "doc",
     schemaVersion: "1.0.0",
@@ -68,9 +52,7 @@ export async function createDocument(data: {
     data: {
       userId: data.userId,
       docTypeId: resolvedDocTypeId,
-      ...(data.styleProfileId !== undefined && {
-        styleProfileId: data.styleProfileId,
-      }),
+      ...(data.styleProfileId !== undefined && { styleProfileId: data.styleProfileId }),
       title: data.title ?? "未命名文档",
       content: emptyDoc as unknown as Prisma.InputJsonValue,
       meta: {},
@@ -83,14 +65,32 @@ export async function updateDocumentContent(
   userId: string,
   content: unknown,
 ) {
-  const doc = await getDocument(id, userId);
+  const document = await getDocument(id, userId);
+  if (!isValidDoc(content)) {
+    throw badRequest("文档内容不是合法 Doc AST");
+  }
+
   return prisma.document.update({
-    where: { id: doc.id },
-    data: { content: content as Prisma.InputJsonValue },
+    where: { id: document.id },
+    data: { content: content as unknown as Prisma.InputJsonValue },
   });
 }
 
 export async function deleteDocument(id: string, userId: string) {
-  const doc = await getDocument(id, userId);
-  await prisma.document.delete({ where: { id: doc.id } });
+  const document = await getDocument(id, userId);
+  await prisma.document.delete({ where: { id: document.id } });
+}
+
+async function resolveDocTypeId(input: string): Promise<string> {
+  const docType = await prisma.docType.findFirst({
+    where: {
+      isActive: true,
+      OR: [{ id: input }, { code: input }],
+    },
+    select: { id: true },
+  });
+  if (!docType) {
+    throw badRequest("文档类型不存在或已停用");
+  }
+  return docType.id;
 }

@@ -1,14 +1,12 @@
+// @doc-schema-version: 1.0.0
 import type { FastifyInstance } from "fastify";
 import { Type } from "@sinclair/typebox";
-import {
-  createDocument,
-  deleteDocument,
-  getDocument,
-  listDocuments,
-  updateDocumentContent,
-} from "../../services/document.js";
+import type { DocumentPatch } from "@black-bean-sprouts/doc-schema";
+import { createDocument, deleteDocument, getDocument, listDocuments, updateDocumentContent } from "../../services/document.js";
+import { applyPatchesToDocument } from "../../services/documentApplication.js";
 
 const EntityId = Type.String({ minLength: 1 });
+const DocumentIdParams = Type.Object({ id: EntityId });
 
 const CreateBody = Type.Object({
   docTypeId: EntityId,
@@ -20,8 +18,8 @@ const UpdateBody = Type.Object({
   content: Type.Unknown(),
 });
 
-const DocumentIdParams = Type.Object({
-  id: EntityId,
+const PatchBody = Type.Object({
+  patches: Type.Array(Type.Unknown()),
 });
 
 export default async function documentRoutes(fastify: FastifyInstance) {
@@ -32,92 +30,91 @@ export default async function documentRoutes(fastify: FastifyInstance) {
     return listDocuments(user.userId);
   });
 
-  fastify.get(
-    "/:id",
-    { schema: { params: DocumentIdParams } },
-    async (request, reply) => {
-      const user = request.user as { userId: string };
-      const { id } = request.params as { id: string };
+  fastify.get("/:id", { schema: { params: DocumentIdParams } }, async (request, reply) => {
+    const user = request.user as { userId: string };
+    const { id } = request.params as { id: string };
 
-      try {
-        return await getDocument(id, user.userId);
-      } catch (err) {
-        if (err instanceof Error && "statusCode" in err && (err as { statusCode: number }).statusCode === 404) {
-          return reply.status(404).send({
-            error: { code: "NOT_FOUND", message: err.message },
-          });
-        }
-        throw err;
-      }
+    try {
+      return await getDocument(id, user.userId);
+    } catch (error) {
+      return handleNotFound(error, reply);
+    }
+  });
+
+  fastify.post("/", { schema: { body: CreateBody } }, async (request) => {
+    const user = request.user as { userId: string };
+    const body = request.body as {
+      docTypeId: string;
+      title?: string;
+      styleProfileId?: string;
+    };
+
+    return createDocument({
+      userId: user.userId,
+      docTypeId: body.docTypeId,
+      ...(body.title !== undefined && { title: body.title }),
+      ...(body.styleProfileId !== undefined && { styleProfileId: body.styleProfileId }),
+    });
+  });
+
+  fastify.patch("/:id", {
+    schema: {
+      params: DocumentIdParams,
+      body: UpdateBody,
     },
-  );
+  }, async (request, reply) => {
+    const user = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as { content: unknown };
 
-  fastify.post(
-    "/",
-    { schema: { body: CreateBody } },
-    async (request) => {
-      const user = request.user as { userId: string };
-      const body = request.body as {
-        docTypeId: string;
-        title?: string;
-        styleProfileId?: string;
-      };
+    try {
+      return await updateDocumentContent(id, user.userId, body.content);
+    } catch (error) {
+      return handleNotFound(error, reply);
+    }
+  });
 
-      return createDocument({
+  fastify.patch("/:id/patches", {
+    schema: {
+      params: DocumentIdParams,
+      body: PatchBody,
+    },
+  }, async (request, reply) => {
+    const user = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as { patches: DocumentPatch[] };
+
+    try {
+      return await applyPatchesToDocument({
+        documentId: id,
         userId: user.userId,
-        docTypeId: body.docTypeId,
-        ...(body.title !== undefined && { title: body.title }),
-        ...(body.styleProfileId !== undefined && {
-          styleProfileId: body.styleProfileId,
-        }),
+        patches: body.patches,
       });
-    },
-  );
+    } catch (error) {
+      return handleNotFound(error, reply);
+    }
+  });
 
-  fastify.patch(
-    "/:id",
-    {
-      schema: {
-        params: DocumentIdParams,
-        body: UpdateBody,
-      },
-    },
-    async (request, reply) => {
-      const user = request.user as { userId: string };
-      const { id } = request.params as { id: string };
-      const body = request.body as { content: unknown };
+  fastify.delete("/:id", { schema: { params: DocumentIdParams } }, async (request, reply) => {
+    const user = request.user as { userId: string };
+    const { id } = request.params as { id: string };
 
-      try {
-        return await updateDocumentContent(id, user.userId, body.content);
-      } catch (err) {
-        if (err instanceof Error && "statusCode" in err && (err as { statusCode: number }).statusCode === 404) {
-          return reply.status(404).send({
-            error: { code: "NOT_FOUND", message: err.message },
-          });
-        }
-        throw err;
-      }
-    },
-  );
+    try {
+      await deleteDocument(id, user.userId);
+      return { success: true };
+    } catch (error) {
+      return handleNotFound(error, reply);
+    }
+  });
+}
 
-  fastify.delete(
-    "/:id",
-    { schema: { params: DocumentIdParams } },
-    async (request, reply) => {
-      const user = request.user as { userId: string };
-      const { id } = request.params as { id: string };
-
-      try {
-        await deleteDocument(id, user.userId);
-        return { success: true };
-      } catch (err) {
-        if (err instanceof Error && "statusCode" in err && (err as { statusCode: number }).statusCode === 404) {
-          return reply.status(404).send({
-            error: { code: "NOT_FOUND", message: err.message },
-          });
-        }
-        throw err;
-      }
-    },
-  );
+function handleNotFound(error: unknown, reply: {
+  status: (statusCode: number) => { send: (body: unknown) => unknown };
+}): unknown {
+  if (error instanceof Error && "statusCode" in error && error.statusCode === 404) {
+    return reply.status(404).send({
+      error: { code: "NOT_FOUND", message: error.message },
+    });
+  }
+  throw error;
 }

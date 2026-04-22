@@ -57,6 +57,7 @@ export type { CitationStyleConfig } from "./style/citation-style.js";
 
 // Patch
 export type { DocumentPatch } from "./patch/types.js";
+export { applyDocumentPatches, DocumentPatchError } from "./patch/index.js";
 
 // Runtime validators
 export { validateDoc, isValidDoc, validateStyleProfile, isValidStyleProfile } from "./schemas/validators.js";

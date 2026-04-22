@@ -22,6 +22,8 @@
 |---|---:|---|
 | `pnpm --filter @black-bean-sprouts/xiaolongxia-kernel typecheck` | PASS | 新内核边界包类型检查通过 |
 | `pnpm --filter @black-bean-sprouts/xiaolongxia-kernel build` | PASS | 生成 `dist` 类型与 JS 产物，供 server workspace 解析 |
+| `pnpm --filter @black-bean-sprouts/doc-schema build` | PASS | DocumentPatch 引擎构建通过 |
+| `pnpm --filter @black-bean-sprouts/doc-schema smoke:patch` | PASS | `applyDocumentPatches` 插入、移动、文本、meta、reference、asset 与非法移动 smoke 通过 |
 | `pnpm --filter @black-bean-sprouts/server typecheck` | PASS | server 路由重接线后类型检查通过 |
 | `pnpm typecheck` | PASS | 全 workspace TypeScript 检查通过 |
 | `pnpm build` | PASS | 全 workspace 构建通过 |
@@ -90,9 +92,38 @@
 
 ### `packages/doc-schema`
 
-**状态：PASS / 本次全量 typecheck/build 通过**
+**状态：PASS / DocumentPatch 引擎已完成基础 smoke**
 
-未新增行为测试。本次只确认现有包没有因新增内核包和 server 重接线而构建失败。
+已完成：
+
+- 新增 `applyDocumentPatches`。
+- 新增 `DocumentPatchError`。
+- 支持 `insert_block`、`remove_block`、`move_block`、`update_block_attrs`、`update_text`、`update_meta`、reference/asset upsert/remove。
+- `apply_style_profile` 作为 AST no-op，留给 server 配置层处理。
+- 新增 `packages/doc-schema/tests/patch-test.mjs`。
+
+已验证：
+
+- `pnpm --filter @black-bean-sprouts/doc-schema typecheck`
+- `pnpm --filter @black-bean-sprouts/doc-schema build`
+- `pnpm --filter @black-bean-sprouts/doc-schema smoke:patch`
+
+### `packages/server` DocumentApplicationService
+
+**状态：PARTIAL / 静态检查通过，数据库端到端待测**
+
+已完成：
+
+- 新增 `packages/server/src/services/documentApplication.ts`。
+- 新增 `applyPatchesToDocument`。
+- 新增 `PATCH /api/documents/:id/patches`。
+- `updateDocumentContent` 写入前校验 `isValidDoc`。
+
+未完成：
+
+- 尚未启动 PostgreSQL 做 create document + patch API 真实写库 smoke。
+- `DocumentPatch[]` 还缺少 TypeBox/AJV 运行时 schema 校验。
+- Agent `patch_document` 工具尚未接入该服务。
 
 ### `packages/doc-engine`
 
