@@ -80,6 +80,9 @@ importers:
       '@black-bean-sprouts/doc-schema':
         specifier: workspace:*
         version: link:../doc-schema
+      '@black-bean-sprouts/xiaolongxia-kernel':
+        specifier: workspace:*
+        version: link:../xiaolongxia-kernel
       '@fastify/cors':
         specifier: ^10.0.0
         version: 10.1.0
@@ -154,6 +157,16 @@ importers:
       vue-tsc:
         specifier: ^2.0.0
         version: 2.2.12(typescript@5.9.3)
+
+  packages/xiaolongxia-kernel:
+    dependencies:
+      '@black-bean-sprouts/agent-runtime':
+        specifier: workspace:*
+        version: link:../agent-runtime
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
 
 packages:
 

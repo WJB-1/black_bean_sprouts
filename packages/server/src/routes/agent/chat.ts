@@ -1,17 +1,20 @@
-import type { FastifyInstance } from "fastify";
+// @doc-schema-version: 1.0.0
+import { randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { Type } from "@sinclair/typebox";
 import {
-  AgentOrchestrator,
-  getSkill,
-  OpenAICompatProvider,
-  patchDocumentTool,
-  queryDocumentTool,
-  renderDocumentTool,
-  ToolRegistry,
-} from "@black-bean-sprouts/agent-runtime";
-import { loadEnv } from "../../env.js";
+  createKernelSessionEntry,
+  resolveLegacySkillsSnapshot,
+  withKernelState,
+  type KernelEvent,
+  type KernelHistoryMessage,
+} from "@black-bean-sprouts/xiaolongxia-kernel";
+import { AppError } from "../../lib/errors.js";
 import { prisma } from "../../lib/prisma.js";
 import { createToolServices } from "../../services/agent.js";
+import { createOrLoadAgentSession, updateAgentSessionWorkingMemory } from "../../services/agentSession.js";
+import { createXiaolongxiaRuntime } from "../../services/xiaolongxia.js";
 
 const ChatBody = Type.Object({
   message: Type.String({ minLength: 1 }),
@@ -20,39 +23,8 @@ const ChatBody = Type.Object({
   skillCode: Type.Optional(Type.String()),
 });
 
-function buildOrchestrator(skillCode: string): {
-  orchestrator: AgentOrchestrator;
-  skill: NonNullable<ReturnType<typeof getSkill>>;
-} | null {
-  const env = loadEnv();
-  const skill = getSkill(skillCode);
-  if (!skill) {
-    return null;
-  }
-
-  const provider = new OpenAICompatProvider({
-    baseURL: env.LLM_BASE_URL,
-    apiKey: env.LLM_API_KEY,
-    model: env.LLM_MODEL,
-  });
-
-  const registry = new ToolRegistry();
-  registry.register(patchDocumentTool);
-  registry.register(queryDocumentTool);
-  registry.register(renderDocumentTool);
-
-  const maxTurns = Number.parseInt(env.LLM_MAX_TURNS, 10) || 10;
-
-  return {
-    orchestrator: new AgentOrchestrator({ provider, registry, skill, maxTurns }),
-    skill,
-  };
-}
-
 export default async function chatRoute(fastify: FastifyInstance) {
-  fastify.post("/chat", {
-    schema: { body: ChatBody },
-  }, async (request, reply) => {
+  fastify.post("/chat", { schema: { body: ChatBody } }, async (request, reply) => {
     const body = request.body as {
       message: string;
       sessionId?: string;
@@ -61,116 +33,180 @@ export default async function chatRoute(fastify: FastifyInstance) {
     };
     const user = request.user as { userId: string };
 
-    reply.raw.setHeader("Content-Type", "text/event-stream");
-    reply.raw.setHeader("Cache-Control", "no-cache");
-    reply.raw.setHeader("Connection", "keep-alive");
-    reply.raw.setHeader("X-Accel-Buffering", "no");
-
-    let eventId = 0;
-    const sendEvent = (event: Record<string, unknown>): boolean => {
-      try {
-        return reply.raw.write(`id: ${eventId++}\ndata: ${JSON.stringify(event)}\n\n`);
-      } catch {
-        return false;
-      }
-    };
-
+    setupSse(reply);
+    const sendEvent = createEventWriter(reply);
     const abortController = new AbortController();
     reply.raw.on("close", () => {
       abortController.abort();
       reply.raw.end();
     });
 
-    let sessionId = body.sessionId;
-    if (!sessionId) {
-      const docId = body.documentId ?? "none";
-      const session = await prisma.agentSession.create({
-        data: {
-          userId: user.userId,
-          documentId: docId,
-          workingMemory: {},
-        },
-      });
-      sessionId = session.id;
-      sendEvent({ type: "session_created", sessionId });
-    }
-
-    const dbMessages = await prisma.agentMessage.findMany({
-      where: { sessionId },
-      orderBy: { createdAt: "asc" },
-    });
-
-    const history = dbMessages
-      .filter((message) => message.role === "USER" || message.role === "ASSISTANT")
-      .map((message) => ({
-        role: (message.role === "USER" ? "user" : "assistant") as "user" | "assistant",
-        content: message.content ?? "",
-      }));
-
-    const built = buildOrchestrator(body.skillCode ?? "thesis");
-    if (!built) {
-      sendEvent({ type: "error", error: { code: "INVALID_SKILL", message: "未知的技能类型" } });
-      sendEvent({ type: "done", usage: { inputTokens: 0, outputTokens: 0 } });
+    const skillCode = body.skillCode ?? "thesis";
+    const skillsSnapshot = resolveLegacySkillsSnapshot(skillCode);
+    if (!skillsSnapshot) {
+      sendEvent({ type: "error", error: { code: "INVALID_SKILL", message: `未知技能：${skillCode}` } });
+      sendEvent(donePayload());
       reply.raw.end();
       return reply;
     }
 
-    const services = createToolServices(user.userId);
-
     try {
-      await prisma.agentMessage.create({
-        data: {
-          sessionId,
-          role: "USER",
-          content: body.message,
-        },
+      const session = await createOrLoadAgentSession({
+        userId: user.userId,
+        ...(body.sessionId !== undefined && { sessionId: body.sessionId }),
+        ...(body.documentId !== undefined && { documentId: body.documentId }),
       });
 
-      const stream = built.orchestrator.run({
-        sessionId,
+      if (session.isNew) {
+        sendEvent({ type: "session_created", sessionId: session.id });
+      }
+
+      const runId = randomUUID();
+      const sessionBase = createKernelSessionEntry({
+        sessionId: session.id,
         userId: user.userId,
-        docId: body.documentId ?? "",
+        documentId: session.documentId,
+        skillCode,
+        skillsSnapshot,
+        workingMemory: session.workingMemory,
+      });
+      const workingMemory = withKernelState(sessionBase.workingMemory, {
+        agentId: sessionBase.agentId,
+        sessionKey: sessionBase.sessionKey,
+        skillsSnapshot: sessionBase.skillsSnapshot,
+        lastRunId: runId,
+      });
+
+      await updateAgentSessionWorkingMemory(session.id, workingMemory);
+      const history = await loadHistory(session.id);
+      await prisma.agentMessage.create({
+        data: { sessionId: session.id, role: "USER", content: body.message },
+      });
+
+      const runtime = createXiaolongxiaRuntime();
+      const stream = runtime.run({
+        runId,
+        session: { ...sessionBase, workingMemory },
         userMessage: body.message,
         history,
+        services: createToolServices(user.userId),
         signal: abortController.signal,
-        services,
       });
 
       let assistantText = "";
+      const toolCalls: Array<Record<string, unknown>> = [];
+      const toolResults: unknown[] = [];
+
       for await (const event of stream) {
         if (abortController.signal.aborted) {
           break;
         }
-
         sendEvent(event);
-        if (event.type === "message_delta") {
-          assistantText += event.text;
-        }
+        captureEventState(event, toolCalls, toolResults, (chunk) => {
+          assistantText += chunk;
+        });
       }
 
-      if (assistantText) {
+      if (assistantText || toolCalls.length > 0 || toolResults.length > 0) {
         await prisma.agentMessage.create({
           data: {
-            sessionId,
+            sessionId: session.id,
             role: "ASSISTANT",
-            content: assistantText,
+            content: assistantText || null,
+            toolCalls: toolCalls as Prisma.InputJsonValue,
+            toolResults: toolResults as Prisma.InputJsonValue,
           },
         });
       }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Agent 运行出错";
-      if (errorMessage.includes("LLM API error") || errorMessage.includes("API key")) {
-        sendEvent({
-          type: "message_delta",
-          text: `已收到你的消息：“${body.message}”。\n\n当前 LLM 服务未配置或暂不可用，请在 .env 中设置 LLM_API_KEY。\n支持任意 OpenAI 兼容 API（DeepSeek / MiniMax / OpenAI 等）。`,
-        });
-      } else {
-        sendEvent({ type: "error", error: { code: "AGENT_ERROR", message: errorMessage } });
-      }
-      sendEvent({ type: "done", usage: { inputTokens: 0, outputTokens: 0 } });
+    } catch (error) {
+      await handleRouteError(error, body.message, sendEvent);
     }
 
     reply.raw.end();
     return reply;
   });
+}
+
+function setupSse(reply: FastifyReply): void {
+  reply.raw.setHeader("Content-Type", "text/event-stream");
+  reply.raw.setHeader("Cache-Control", "no-cache");
+  reply.raw.setHeader("Connection", "keep-alive");
+  reply.raw.setHeader("X-Accel-Buffering", "no");
+}
+
+function createEventWriter(reply: FastifyReply): (event: Record<string, unknown>) => boolean {
+  let eventId = 0;
+  return (event) => {
+    try {
+      return reply.raw.write(`id: ${eventId++}\ndata: ${JSON.stringify(event)}\n\n`);
+    } catch {
+      return false;
+    }
+  };
+}
+
+async function loadHistory(sessionId: string): Promise<KernelHistoryMessage[]> {
+  const messages = await prisma.agentMessage.findMany({
+    where: { sessionId },
+    orderBy: { createdAt: "asc" },
+  });
+  const history: KernelHistoryMessage[] = [];
+  for (const message of messages) {
+    if (message.role === "USER") {
+      history.push({ role: "user", content: message.content ?? "" });
+      continue;
+    }
+    if (message.role === "ASSISTANT") {
+      history.push({ role: "assistant", content: message.content ?? "" });
+    }
+  }
+  return history;
+}
+
+function captureEventState(
+  event: KernelEvent,
+  toolCalls: Array<Record<string, unknown>>,
+  toolResults: unknown[],
+  onText: (chunk: string) => void,
+): void {
+  if (event.type === "message_delta") {
+    onText(event.text);
+    return;
+  }
+  if (event.type === "tool_call_start") {
+    toolCalls.push({ tool: event.tool, args: event.args });
+    return;
+  }
+  if (event.type === "tool_call_result") {
+    toolResults.push(event.result);
+  }
+}
+
+async function handleRouteError(
+  error: unknown,
+  userMessage: string,
+  sendEvent: (event: Record<string, unknown>) => boolean,
+): Promise<void> {
+  if (error instanceof AppError) {
+    sendEvent({ type: "error", error: { code: error.code ?? "APP_ERROR", message: error.message } });
+    sendEvent(donePayload());
+    return;
+  }
+
+  const errorMessage = error instanceof Error ? error.message : "Agent 运行出错";
+  if (errorMessage.includes("LLM API error") || errorMessage.includes("API key")) {
+    sendEvent({
+      type: "message_delta",
+      text: `已收到你的消息：“${userMessage}”。\n\n当前 LLM 服务未配置或暂不可用，请先在 .env 中设置 LLM_API_KEY。`,
+    });
+    sendEvent(donePayload());
+    return;
+  }
+
+  sendEvent({ type: "error", error: { code: "AGENT_ERROR", message: errorMessage } });
+  sendEvent(donePayload());
+}
+
+function donePayload(): Record<string, unknown> {
+  return { type: "done", usage: { inputTokens: 0, outputTokens: 0, model: "" } };
 }

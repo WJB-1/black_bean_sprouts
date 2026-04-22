@@ -15,6 +15,7 @@
     "@black-bean-sprouts/doc-schema": "workspace:*",
     "@black-bean-sprouts/doc-engine": "workspace:*",
     "@black-bean-sprouts/agent-runtime": "workspace:*",
+    "@black-bean-sprouts/xiaolongxia-kernel": "workspace:*",
     "@prisma/client": "^6.0.0",
     "fastify": "^5.0.0",
     "@fastify/cors": "^10.0.0",
