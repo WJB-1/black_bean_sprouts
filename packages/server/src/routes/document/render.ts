@@ -1,176 +1,33 @@
-import type { FastifyInstance } from "fastify";
-import { Type } from "@sinclair/typebox";
-import type { Doc, StyleProfile } from "@black-bean-sprouts/doc-schema";
-import { CitationFormatter, DocxRenderer, NumberingResolver } from "@black-bean-sprouts/doc-engine";
-import { prisma } from "../../lib/prisma.js";
+import type { FastifyPluginAsync } from "fastify";
+import type { RenderApplicationService } from "../../services/render-application.js";
 
-const EntityId = Type.String({ minLength: 1 });
-
-const DocumentIdParams = Type.Object({
-  id: EntityId,
-});
-
-const RenderBody = Type.Object({
-  format: Type.Optional(Type.Union([Type.Literal("docx"), Type.Literal("pdf")])),
-});
-
-const defaultStyleProfile: StyleProfile = {
-  id: "__default__",
-  name: "默认样式",
-  docTypeCode: "thesis",
-  version: "1.0.0",
-  page: {
-    size: "A4",
-    orientation: "portrait",
-    margin: { top: "2.54cm", bottom: "2.54cm", left: "3.17cm", right: "3.17cm" },
-  },
-  fonts: {
-    body: { eastAsian: "宋体", latin: "Times New Roman" },
-    heading: { eastAsian: "黑体", latin: "Arial" },
-    caption: { eastAsian: "宋体", latin: "Times New Roman" },
-    monospace: { eastAsian: "宋体", latin: "Courier New" },
-    baseSize: 12,
-  },
-  numbering: {
-    section: [{
-      levels: [{ style: "arabic" }, { style: "arabic" }, { style: "arabic" }],
-      resetOn: "none",
-      format: "{n1}.{n2}",
-    }],
-    figure: { levels: [{ style: "arabic" }], resetOn: "section1", format: "图{n1}" },
-    table: { levels: [{ style: "arabic" }], resetOn: "section1", format: "表{n1}" },
-    formula: { levels: [{ style: "arabic" }], resetOn: "section1", format: "({n1})" },
-    appendix: { levels: [{ style: "letter-upper" }], resetOn: "none", format: "附录{n1}" },
-    reference: { levels: [{ style: "arabic" }], resetOn: "none", format: "[{n1}]" },
-  },
-  nodes: {
-    section: {
-      "1": { bold: true, size: 16, align: "center", spaceBefore: "24pt", spaceAfter: "12pt" },
-      "2": { bold: true, size: 14, align: "left", spaceBefore: "18pt", spaceAfter: "6pt" },
-      "3": { bold: true, size: 12, align: "left", spaceBefore: "12pt", spaceAfter: "6pt" },
-    },
-    paragraph: {
-      normal: { size: 12, lineHeight: 1.5, firstLineIndent: "2em", align: "justify" },
-      quote: { size: 12, lineHeight: 1.5, firstLineIndent: "0" },
-      code: { font: "Courier New", size: 10 },
-      note: { size: 10 },
-      caption: { size: 10, align: "center" },
-      "list-item": { size: 12, lineHeight: 1.5 },
-    },
-    figure: { captionPosition: "below", captionStyle: { size: 10, align: "center" } },
-    table: { captionPosition: "above", captionStyle: { size: 10, align: "center" }, defaultBorder: "three-line" },
-    abstract: {
-      titleStyle: { bold: true, size: 16, align: "center" },
-      bodyStyle: { size: 12, lineHeight: 1.5 },
-      keywordsStyle: { size: 12 },
-    },
-    cover: { layout: "from-template" },
-    formula: { numberingFormat: "({chapter}.{n})" },
-    referenceList: { hangingIndent: "2em", fontSize: 10.5 },
-  },
-  citation: { cslStyleKey: "gb-t-7714-2015-numeric", locale: "zh-CN" },
-  isActive: true,
+export type RenderRouteDeps = {
+  readonly renderService: RenderApplicationService;
 };
 
-function sanitizeFilename(filename: string): string {
-  return filename.replace(/[^a-zA-Z0-9\u4e00-\u9fa5._-]/g, "_");
-}
+export function createRenderRoute(deps: RenderRouteDeps): FastifyPluginAsync {
+  const { renderService } = deps;
 
-export default async function renderRoutes(fastify: FastifyInstance) {
-  fastify.post(
-    "/:id/render",
-    {
-      preHandler: [fastify.authenticate],
-      schema: {
-        params: DocumentIdParams,
-        body: Type.Optional(RenderBody),
-      },
-    },
-    async (request, reply) => {
-      const user = request.user as { userId: string };
-      const { id } = request.params as { id: string };
-      const { format = "docx" } = (request.body ?? {}) as { format?: string };
+  return async (app) => {
+    app.post<{
+      Params: { id: string };
+      Body: { format?: "docx" | "pdf" };
+    }>("/:id/render", async (req, reply) => {
+      const userId = (req.user as { sub: string } | undefined)?.sub;
 
-      const doc = await prisma.document.findUnique({ where: { id } });
-      if (!doc || doc.userId !== user.userId) {
-        return reply.status(404).send({
-          error: { code: "NOT_FOUND", message: "文档不存在" },
-        });
+      if (!userId) {
+        return reply.status(401).send({ error: "Authentication required" });
       }
 
-      const job = await prisma.renderJob.create({
-        data: {
-          documentId: id,
-          format,
-          status: "PENDING",
-        },
-      });
+      const { id: documentId } = req.params;
+      const format = req.body?.format ?? "docx";
 
-      await prisma.document.update({
-        where: { id },
-        data: { status: "RENDERING" },
-      });
-
-      try {
-        const renderer = new DocxRenderer();
-        const numbering = new NumberingResolver();
-        const citation = new CitationFormatter();
-        const docContent = doc.content as unknown as Doc;
-
-        citation.indexReferences(Object.values(docContent.references ?? {}), []);
-
-        const buffer = await renderer.render(docContent, {
-          styleProfile: defaultStyleProfile,
-          numberingResolver: numbering,
-          citationFormatter: citation,
-          loadAsset: async () => Buffer.from(""),
-        });
-
-        const storageKey = `renders/${id}/${job.id}.docx`;
-
-        await prisma.renderJob.update({
-          where: { id: job.id },
-          data: {
-            status: "COMPLETED",
-            resultKey: storageKey,
-            completedAt: new Date(),
-          },
-        });
-
-        await prisma.document.update({
-          where: { id },
-          data: { status: "COMPLETED" },
-        });
-
-        void reply.header(
-          "Content-Type",
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        );
-
-        const safeFilename = sanitizeFilename(doc.title ?? "document");
-        void reply.header(
-          "Content-Disposition",
-          `attachment; filename="${safeFilename}.docx"; filename*=UTF-8''${encodeURIComponent(safeFilename)}.docx`,
-        );
-
-        return reply.send(buffer);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "渲染失败";
-
-        await prisma.renderJob.update({
-          where: { id: job.id },
-          data: { status: "FAILED", error: message },
-        });
-
-        await prisma.document.update({
-          where: { id },
-          data: { status: "FAILED" },
-        });
-
-        return reply.status(500).send({
-          error: { code: "RENDER_FAILED", message },
-        });
+      if (format !== "docx" && format !== "pdf") {
+        return reply.status(400).send({ error: "Invalid format. Supported: docx, pdf" });
       }
-    },
-  );
+
+      const result = await renderService.requestRender(documentId, userId, format);
+      return reply.status(202).send(result);
+    });
+  };
 }

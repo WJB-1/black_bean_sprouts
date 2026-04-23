@@ -1,30 +1,25 @@
 {
   "name": "@black-bean-sprouts/doc-schema",
-  "version": "1.0.0",
-  "description": "Document AST schema — the spine of the platform",
+  "version": "0.1.0",
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "dev": "tsc -p tsconfig.build.json --watch",
-    "smoke:patch": "node ./tests/patch-test.mjs",
-    "_typecheck": "tsc --noEmit",
-    "typecheck": "pnpm run _typecheck",
-    "clean": "rimraf dist tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo"
-  },
-  "dependencies": {
-    "@sinclair/typebox": "^0.34.0",
-    "ajv": "^8.17.0",
-    "nanoid": "^5.0.0"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
   },
   "devDependencies": {
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0"
   }
 }

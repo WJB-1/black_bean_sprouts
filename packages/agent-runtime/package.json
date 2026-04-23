@@ -1,28 +1,25 @@
 {
   "name": "@black-bean-sprouts/agent-runtime",
   "version": "0.1.0",
-  "description": "Agent runtime types — orchestrator, tools, LLM router",
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "dev": "tsc -p tsconfig.build.json --watch",
-    "smoke:patch-tool": "node ./tests/patch-document-tool-test.mjs",
-    "_typecheck": "tsc --noEmit",
-    "typecheck": "pnpm -C ../.. --filter @black-bean-sprouts/doc-schema build && pnpm run _typecheck",
-    "clean": "rimraf dist tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo"
-  },
-  "dependencies": {
-    "@black-bean-sprouts/doc-schema": "workspace:*"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
   },
   "devDependencies": {
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0"
   }
 }

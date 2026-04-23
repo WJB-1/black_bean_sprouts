@@ -1,11 +1,16 @@
-import type { FastifyInstance } from "fastify";
-import chatRoute from "./chat.js";
-import sessionRoutes from "./session.js";
+import type { FastifyPluginAsync } from "fastify";
+import { createIntegrationGateway } from "../../integration/integration-gateway.js";
 
-export default async function agentRoutes(fastify: FastifyInstance) {
-  // All agent routes require auth
-  fastify.addHook("preHandler", fastify.authenticate);
+export const agentRoutes: FastifyPluginAsync = async (app) => {
+  const gateway = createIntegrationGateway();
+  const runtime = gateway.getKernelRuntime();
 
-  await fastify.register(chatRoute);
-  await fastify.register(sessionRoutes);
-}
+  app.post("/chat", async (req, reply) => {
+    const { message, sessionId, documentId } = req.body as { message: string; sessionId?: string; documentId?: string };
+    if (!message) return reply.status(400).send({ error: "message is required" });
+    const events: unknown[] = [];
+    for await (const event of runtime.run({ message, sessionId, documentId })) { events.push(event); }
+    const last = events.filter((e: any) => e.stream === "assistant").pop();
+    return { reply: (last as any)?.data?.fullText ?? "", events };
+  });
+};

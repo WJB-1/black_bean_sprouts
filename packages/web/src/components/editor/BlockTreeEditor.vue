@@ -1,56 +1,89 @@
 <template>
-  <section class="apple-editor-pane">
-    <header class="apple-subpanel-header">
-      <div>
-        <p class="apple-kicker">Patch Editor</p>
-        <h2 class="apple-section-title">结构块编辑</h2>
-      </div>
-      <div class="apple-block-actions">
-        <n-button size="small" @click="addAbstract">添加摘要</n-button>
-        <n-button size="small" @click="addParagraph">添加段落</n-button>
-        <n-button size="small" type="primary" @click="addSection">添加章节</n-button>
-      </div>
-    </header>
-
-    <section v-if="blocks.length > 0" class="apple-block-list">
-      <block-editor
-        v-for="(block, index) in blocks"
-        :key="block.id"
-        :node="block"
+  <div class="block-tree-editor">
+    <div v-if="!editor" class="loading">加载编辑器...</div>
+    <div v-else class="editor-container">
+      <editor-content :editor="editor" />
+      <SlashMenu
+        :visible="slashMenuVisible"
+        :coords="slashMenuCoords"
         parent-id="root"
-        :index="index"
-        :sibling-count="blocks.length"
-        :depth="0"
-        @apply="emit('apply', $event)"
+        :insert-index="0"
+        @close="slashMenuVisible = false"
+        @patch="handleSlashPatch"
       />
-    </section>
-
-    <section v-else class="apple-empty apple-panel-soft">
-      <div>
-        <p class="apple-kicker">Empty Draft</p>
-        <p class="apple-muted">先创建根章节、摘要或段落，所有修改都会转换成 `DocumentPatch[]`。</p>
-      </div>
-    </section>
-  </section>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import type { BlockNode, DocumentPatch } from "@black-bean-sprouts/doc-schema";
-import { createAbstractNode, createParagraphNode, createSectionNode } from "../../lib/doc-editor.js";
-import BlockEditor from "./BlockEditor.vue";
+import { ref, onBeforeUnmount, onMounted } from "vue";
+import { useEditor, EditorContent } from "@tiptap/vue-3";
+import StarterKit from "@tiptap/starter-kit";
+import SlashMenu from "./menus/SlashMenu.vue";
+import { useDocumentStore } from "../../stores/document.js";
+import { PatchFirstPlugin } from "./plugins/PatchFirstPlugin.js";
+import { createBatch } from "@black-bean-sprouts/doc-schema";
+import type { DocumentPatch } from "@black-bean-sprouts/doc-schema";
 
-const props = defineProps<{ blocks: BlockNode[] }>();
-const emit = defineEmits<{ apply: [patches: DocumentPatch[]] }>();
+const props = defineProps<{ documentId?: string }>();
+const store = useDocumentStore();
 
-function addSection(): void {
-  emit("apply", [{ op: "insert_block", parentId: "root", index: props.blocks.length, node: createSectionNode("新章节") }]);
+const slashMenuVisible = ref(false);
+const slashMenuCoords = ref({ x: 0, y: 0 });
+
+const editor = useEditor({
+  extensions: [StarterKit],
+  content: "<p>开始编辑文档...</p>",
+  editorProps: {
+    handleKeyDown: (_view: any, event: KeyboardEvent) => {
+      if (event.key === "/" && !slashMenuVisible.value && editor.value) {
+        // Get cursor coords from editor
+        const { from } = editor.value.state.selection;
+        const coords = editor.value.view.coordsAtPos(from);
+        slashMenuCoords.value = { x: coords.left, y: coords.bottom };
+        slashMenuVisible.value = true;
+        return false;
+      }
+      if (event.key === "Escape") {
+        slashMenuVisible.value = false;
+      }
+      return false;
+    },
+  },
+});
+
+// PatchFirstPlugin - connect to store
+let plugin: PatchFirstPlugin | null = null;
+
+onMounted(async () => {
+  if (props.documentId) {
+    await store.loadDocument(props.documentId);
+  }
+  if (editor.value && store.doc) {
+    plugin = new PatchFirstPlugin(editor.value, {
+      getDoc: () => store.doc!,
+      onPatches: (batch) => {
+        store.applyPatches(batch).catch((err) => console.error("Patch failed:", err));
+      },
+    });
+  }
+});
+
+function handleSlashPatch(patches: readonly DocumentPatch[]) {
+  slashMenuVisible.value = false;
+  if (!store.doc) return;
+  const batch = createBatch(store.doc.version, patches, "user");
+  store.applyPatches(batch).catch((err) => console.error("SlashMenu patch failed:", err));
 }
 
-function addParagraph(): void {
-  emit("apply", [{ op: "insert_block", parentId: "root", index: props.blocks.length, node: createParagraphNode("") }]);
-}
-
-function addAbstract(): void {
-  emit("apply", [{ op: "insert_block", parentId: "root", index: props.blocks.length, node: createAbstractNode("zh") }]);
-}
+onBeforeUnmount(() => {
+  plugin?.destroy();
+  editor.value?.destroy();
+});
 </script>
+
+<style scoped>
+.block-tree-editor { height: 100%; display: flex; flex-direction: column; }
+.editor-container { flex: 1; position: relative; }
+.loading { padding: 2rem; color: #666; }
+</style>

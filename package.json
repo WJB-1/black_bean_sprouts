@@ -2,35 +2,44 @@
   "name": "black-bean-sprouts",
   "version": "0.1.0",
   "private": true,
-  "description": "黑豆芽 — 医学文档排版 Agent 平台",
+  "description": "医学/学术文档 Agent 编辑平台",
   "scripts": {
-    "build": "pnpm -r run build",
-    "build:libs": "pnpm --filter @black-bean-sprouts/doc-schema build && pnpm --filter @black-bean-sprouts/agent-runtime build && pnpm --filter @black-bean-sprouts/doc-engine build && pnpm --filter @black-bean-sprouts/xiaolongxia-kernel build",
-    "smoke:doc-engine": "pnpm --filter @black-bean-sprouts/server exec tsx ../../packages/doc-engine/tests/render-test.ts",
-    "smoke:document-patch-api": "pnpm --filter @black-bean-sprouts/server exec tsx ../../scripts/smoke/document-patch-api.ts",
-    "smoke:agent-patch": "pnpm --filter @black-bean-sprouts/server exec tsx ../../scripts/smoke/agent-patch.ts",
-    "smoke": "pnpm --filter @black-bean-sprouts/doc-schema smoke:patch && pnpm --filter @black-bean-sprouts/agent-runtime smoke:patch-tool && pnpm run smoke:doc-engine && pnpm run smoke:document-patch-api && pnpm run smoke:agent-patch",
-    "lint": "eslint packages/*/src --ext .ts",
-    "typecheck": "pnpm run build:libs && pnpm --filter @black-bean-sprouts/doc-schema run _typecheck && pnpm --filter @black-bean-sprouts/agent-runtime run _typecheck && pnpm --filter @black-bean-sprouts/doc-engine run _typecheck && pnpm --filter @black-bean-sprouts/web run _typecheck && pnpm --filter @black-bean-sprouts/xiaolongxia-kernel run _typecheck && pnpm --filter @black-bean-sprouts/server run _typecheck",
-    "clean": "pnpm -r run clean",
-    "dev:schema": "pnpm --filter @black-bean-sprouts/doc-schema dev",
-    "dev:server": "pnpm --filter @black-bean-sprouts/server dev",
-    "dev:web": "pnpm --filter @black-bean-sprouts/web dev",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push"
+    "build": "pnpm -r --stream run build",
+    "typecheck": "pnpm -r --stream run typecheck",
+    "test": "pnpm -r --stream run test",
+    "lint": "pnpm -r --stream run lint",
+    "dev": "pnpm -r --parallel --stream run dev",
+    "smoke": "pnpm run smoke:patch && pnpm run smoke:doc-engine",
+    "smoke:patch": "tsx scripts/smoke/patch.ts",
+    "smoke:patch-conflict": "tsx scripts/smoke/patch-conflict.ts",
+    "smoke:agent-patch": "tsx scripts/smoke/agent-patch.ts",
+    "smoke:openclaw-kernel": "tsx scripts/smoke/openclaw-kernel.ts",
+    "smoke:doc-engine": "tsx scripts/smoke/doc-engine.ts",
+    "smoke:render-style": "tsx scripts/smoke/render-style.ts",
+    "smoke:queue-storage": "tsx scripts/smoke/queue-storage.ts",
+    "smoke:admin-auth": "tsx scripts/smoke/admin-auth.ts",
+    "smoke:web-patch-contract": "tsx scripts/smoke/web-patch-contract.ts",
+    "test:kernel-contract": "tsx scripts/smoke/kernel-contract.ts",
+    "test:patch-contract": "tsx scripts/smoke/patch-contract.ts",
+    "test:docx-snapshots": "tsx scripts/smoke/docx-snapshots.ts",
+    "db:generate": "prisma generate --schema=prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
+    "db:push": "prisma db push --schema=prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@black-bean-sprouts/doc-engine": "workspace:*",
+    "@black-bean-sprouts/doc-schema": "workspace:*",
+    "@black-bean-sprouts/xiaolongxia-kernel": "workspace:*",
+    "@prisma/client": "6.19.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "prisma": "^6.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
   },
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
-  },
-  "packageManager": "pnpm@9.15.4",
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "^5.7.0",
-    "eslint": "^9.0.0",
-    "rimraf": "^6.0.1",
-    "@typescript-eslint/eslint-plugin": "^8.0.0",
-    "@typescript-eslint/parser": "^8.0.0"
   }
 }

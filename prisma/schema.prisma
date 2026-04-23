@@ -7,188 +7,111 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ── 用户 ──
-
-model User {
-  id            String    @id @default(cuid())
-  phone         String?   @unique
-  wechatOpenId  String?   @unique
-  nickname      String?
-  avatarUrl     String?
-  tier          String    @default("free")    // "free" | "pro" | "enterprise"
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  documents     Document[]
-  agentSessions AgentSession[]
-}
-
-// ── 文档类型 ──
-
-model DocType {
-  id          String   @id @default(cuid())
-  code        String   @unique              // "thesis" | "sci_paper" | "proposal"
-  name        String
-  description String?
-  isActive    Boolean  @default(true)
-
-  documents   Document[]
-  skills      Skill[]
-}
-
-// ── 文档 ──
-
-model Document {
-  id             String     @id @default(cuid())
-  userId         String
-  docTypeId      String
-  styleProfileId String?
-  title          String?
-  content        Json       // { type: "doc", schemaVersion: "1.0.0", attrs: {...}, content: [...], references: {...}, assets: {...}, footnotes: {...} }
-  meta           Json
-  status         DocStatus  @default(DRAFT)
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
-
-  user           User       @relation(fields: [userId], references: [id])
-  docType        DocType    @relation(fields: [docTypeId], references: [id])
-  styleProfile   StyleProfile? @relation(fields: [styleProfileId], references: [id])
-  renderJobs     RenderJob[]
-  agentSessions  AgentSession[]
-
-  @@index([userId])
-  @@index([docTypeId])
-}
-
-enum DocStatus {
-  DRAFT
-  RENDERING
-  COMPLETED
-  FAILED
-}
-
-// ── StyleProfile ──
-
-model StyleProfile {
-  id                 String   @id @default(cuid())
-  name               String
-  docTypeCode        String
-  version            String
-  extendsProfileId   String?
-  page               Json     // { size, orientation, margin }
-  fonts              Json
-  numbering          Json
-  nodes              Json     // per-node-type styles
-  citation           Json     // { cslStyleKey, locale }
-  baseDocxTemplateKey String?
-  thumbnailKey       String?
-  isActive           Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  documents          Document[]
-
-  @@index([docTypeCode])
-}
-
-// ── Agent Session ──
-
-model AgentSession {
-  id             String    @id @default(cuid())
-  userId         String
-  documentId     String
-  skillId        String?
-  modelUsed      String?
-  status         AgentSessionStatus @default(ACTIVE)
-  workingMemory  Json      // WorkingMemory JSON (与messages分离)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  user           User      @relation(fields: [userId], references: [id])
-  document       Document  @relation(fields: [documentId], references: [id])
-  messages       AgentMessage[]
-  skill          Skill?    @relation(fields: [skillId], references: [id])
-
-  @@index([userId])
-  @@index([documentId])
-}
-
-enum AgentSessionStatus {
-  ACTIVE
-  COMPLETED
-  FAILED
-  CANCELLED
-}
-
-// ── Agent Message ──
-
-model AgentMessage {
-  id              String       @id @default(cuid())
-  sessionId       String
-  role            MessageRole
-  content         String?
-  toolCalls       Json?
-  toolResults     Json?
-  streamEventId   String?      // SSE event id (断线重连用)
-  tokenUsage      Json?
-  createdAt       DateTime     @default(now())
-
-  session         AgentSession @relation(fields: [sessionId], references: [id])
-
-  @@index([sessionId])
-  @@index([streamEventId])
-}
-
-enum MessageRole {
+enum UserRole {
   USER
-  ASSISTANT
-  SYSTEM
-  TOOL
+  ADMIN
 }
 
-// ── Skill ──
-
-model Skill {
-  id          String   @id @default(cuid())
-  code        String   @unique
-  name        String
-  description String?
-  prompt      String
-  tools       Json     // string[] — tool names
-  docTypeId   String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  docType     DocType? @relation(fields: [docTypeId], references: [id])
-  sessions    AgentSession[]
-
-  @@index([docTypeId])
-}
-
-// ── Render Job ──
-
-model RenderJob {
-  id          String       @id @default(cuid())
-  documentId  String
-  format      String       // "docx" | "pdf"
-  status      JobStatus    @default(PENDING)
-  resultKey   String?      // MinIO key for rendered file
-  error       String?
-  workerId    String?
-  createdAt   DateTime     @default(now())
-  startedAt   DateTime?
-  completedAt DateTime?
-
-  document    Document     @relation(fields: [documentId], references: [id])
-
-  @@index([documentId])
-  @@index([status])
-}
-
-enum JobStatus {
+enum RenderJobStatus {
   PENDING
   RUNNING
   COMPLETED
   FAILED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents Document[]
+  renderJobs RenderJob[]
+}
+
+model Document {
+  id        String   @id @default(cuid())
+  title     String
+  userId    String
+  version   Int      @default(0)
+  content   Json     @default("{}")
+  docTypeId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id])
+  docType   DocType? @relation(fields: [docTypeId], references: [id])
+  patches   DocumentPatchRecord[]
+  renderJobs RenderJob[]
+  styleProfileId String?
+  styleProfile StyleProfile? @relation(fields: [styleProfileId], references: [id])
+
+  @@index([userId])
+}
+
+model DocumentPatchRecord {
+  id            String   @id @default(cuid())
+  documentId    String
+  expectedVersion Int
+  patches       Json
+  source        String
+  appliedAt     DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+model DocType {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  enabled     Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  documents Document[]
+}
+
+model StyleProfile {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  dsl       Json
+  hash      String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents Document[]
+}
+
+model Skill {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  tools       Json    @default("[]")
+  enabled     Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model RenderJob {
+  id          String          @id @default(cuid())
+  documentId  String
+  userId      String
+  format      String          @default("docx")
+  status      RenderJobStatus @default(PENDING)
+  resultKey   String?
+  error       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@index([documentId])
+  @@index([userId])
+  @@index([status])
 }

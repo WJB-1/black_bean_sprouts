@@ -1,6 +1,11 @@
-// Doc-engine barrel export
-export type { RendererContext, RenderOptions } from "./renderer/types.js";
 export { DocxRenderer } from "./renderer/docx-renderer.js";
-export { resolveStyleProfile } from "./style-resolver/index.js";
-export { CitationFormatter } from "./citation/index.js";
-export { NumberingResolver } from "./numbering/index.js";
+export type { RenderResult } from "./renderer/docx-renderer.js";
+
+export { StyleResolverCache } from "./style/style-resolver.js";
+export type { ResolvedStyleProfile, ResolvedHeadingStyle, PageLayoutTwips } from "./style/style-resolver.js";
+
+export type { StyleProfileDsl, PageLayout, FontConfig, HeadingStyleMap, CaptionStyle, NumberingConfig, ReferenceFormatConfig } from "./style/style-profile.js";
+export { defaultStyleProfile, computeProfileHash } from "./style/style-profile.js";
+
+export { RenderPlanner } from "./render-planner.js";
+export type { RenderPlan, RenderPlanInput } from "./render-planner.js";
