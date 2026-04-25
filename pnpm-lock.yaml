@@ -79,6 +79,15 @@ importers:
 
   packages/server:
     dependencies:
+      '@black-bean-sprouts/doc-engine':
+        specifier: workspace:*
+        version: link:../doc-engine
+      '@black-bean-sprouts/doc-schema':
+        specifier: workspace:*
+        version: link:../doc-schema
+      '@black-bean-sprouts/xiaolongxia-kernel':
+        specifier: workspace:*
+        version: link:../xiaolongxia-kernel
       '@fastify/cors':
         specifier: ^10.0.0
         version: 10.1.0
@@ -119,6 +128,9 @@ importers:
 
   packages/web:
     dependencies:
+      '@black-bean-sprouts/doc-schema':
+        specifier: workspace:*
+        version: link:../doc-schema
       '@tiptap/extension-placeholder':
         specifier: ^2.10.0
         version: 2.27.2(@tiptap/core@2.27.2(@tiptap/pm@2.27.2))(@tiptap/pm@2.27.2)

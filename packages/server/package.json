@@ -11,6 +11,9 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@black-bean-sprouts/doc-engine": "workspace:*",
+    "@black-bean-sprouts/doc-schema": "workspace:*",
+    "@black-bean-sprouts/xiaolongxia-kernel": "workspace:*",
     "fastify": "^5.0.0",
     "@fastify/cors": "^10.0.0",
     "@fastify/jwt": "^9.0.0",
