@@ -14,7 +14,28 @@ export function createFakeOpenClawKernel(tools?: FakeKernelTools): OpenClawPort 
       yield { runId, seq: seq++, stream: "assistant", ts: Date.now(), data: { phase: "delta", delta: "Processing..." } };
       if (tools?.patchDocument && input.documentId) {
         yield { runId, seq: seq++, stream: "tool", ts: Date.now(), data: { toolName: "patch_document", phase: "start", input: { documentId: input.documentId } } };
-        yield { runId, seq: seq++, stream: "tool", ts: Date.now(), data: { toolName: "patch_document", phase: "end", output: { success: true } } };
+        try {
+          const success = await tools.patchDocument(input.documentId, []);
+          yield {
+            runId,
+            seq: seq++,
+            stream: "tool",
+            ts: Date.now(),
+            data: { toolName: "patch_document", phase: "end", output: { success } },
+          };
+        } catch (error) {
+          yield {
+            runId,
+            seq: seq++,
+            stream: "tool",
+            ts: Date.now(),
+            data: {
+              toolName: "patch_document",
+              phase: "error",
+              error: error instanceof Error ? error.message : String(error),
+            },
+          };
+        }
       }
       yield { runId, seq: seq++, stream: "assistant", ts: Date.now(), data: { phase: "end", fullText: "Processed: " + input.message } };
       yield { runId, seq, stream: "lifecycle", ts: Date.now(), data: { phase: "end", message: "Fake kernel completed" } };

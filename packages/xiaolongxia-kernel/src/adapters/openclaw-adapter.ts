@@ -29,13 +29,21 @@ export function createOpenClawAdapter(config: OpenClawAdapterConfig): OpenClawPo
       const events: KernelEvent[] = [];
       let resolveEvent: (() => void) | null = null;
       let done = false;
+      let runnerError: unknown;
+      let nextSeq = 0;
 
-      const onEvent = (raw: OpenClawRawEvent) => {
-        events.push(mapOpenClawEvent(raw));
+      const wakeConsumer = () => {
         if (resolveEvent) {
           resolveEvent();
           resolveEvent = null;
         }
+      };
+
+      const onEvent = (raw: OpenClawRawEvent) => {
+        const mapped = mapOpenClawEvent(raw, nextSeq);
+        nextSeq = mapped.seq + 1;
+        events.push(mapped);
+        wakeConsumer();
       };
 
       const runnerPromise = config
@@ -47,12 +55,12 @@ export function createOpenClawAdapter(config: OpenClawAdapterConfig): OpenClawPo
           abortSignal: input.abortSignal,
           onEvent,
         })
-        .then(() => {
+        .catch((error: unknown) => {
+          runnerError = error;
+        })
+        .finally(() => {
           done = true;
-          if (resolveEvent) {
-            resolveEvent();
-            resolveEvent = null;
-          }
+          wakeConsumer();
         });
 
       let yieldIndex = 0;
@@ -68,6 +76,9 @@ export function createOpenClawAdapter(config: OpenClawAdapterConfig): OpenClawPo
       }
 
       await runnerPromise;
+      if (runnerError) {
+        throw runnerError;
+      }
     },
 
     async resetSession(sessionKey: string): Promise<void> {

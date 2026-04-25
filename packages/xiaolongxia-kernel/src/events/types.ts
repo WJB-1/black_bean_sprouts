@@ -1,4 +1,15 @@
-export type KernelEventStream = "lifecycle" | "tool" | "assistant" | "error" | "patch" | "thinking";
+export type KernelEventStream =
+  | "lifecycle"
+  | "tool"
+  | "assistant"
+  | "error"
+  | "item"
+  | "plan"
+  | "approval"
+  | "command_output"
+  | "patch"
+  | "compaction"
+  | "thinking";
 
 export type KernelEvent = {
   readonly runId: string;

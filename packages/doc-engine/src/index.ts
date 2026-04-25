@@ -1,5 +1,7 @@
 export { DocxRenderer } from "./renderer/docx-renderer.js";
 export type { RenderResult } from "./renderer/docx-renderer.js";
+export { LatexRenderer } from "./renderer/latex-renderer.js";
+export type { LatexRenderResult } from "./renderer/latex-renderer.js";
 
 export { StyleResolverCache } from "./style/style-resolver.js";
 export type { ResolvedStyleProfile, ResolvedHeadingStyle, PageLayoutTwips } from "./style/style-resolver.js";

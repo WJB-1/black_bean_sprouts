@@ -5,10 +5,30 @@ export type OpenClawRawEvent = {
   data: Record<string, unknown>; sessionKey?: string;
 };
 
-let mappedSeq = 0;
+const validStreams = new Set<KernelEventStream>([
+  "lifecycle",
+  "tool",
+  "assistant",
+  "error",
+  "item",
+  "plan",
+  "approval",
+  "command_output",
+  "patch",
+  "compaction",
+  "thinking",
+]);
 
-export function mapOpenClawEvent(raw: OpenClawRawEvent): KernelEvent {
-  const validStreams: KernelEventStream[] = ["lifecycle", "tool", "assistant", "error", "patch", "thinking"];
-  const stream: KernelEventStream = validStreams.includes(raw.stream as KernelEventStream) ? (raw.stream as KernelEventStream) : "lifecycle";
-  return { runId: raw.runId, seq: raw.seq ?? mappedSeq++, stream, ts: raw.ts ?? Date.now(), data: raw.data, sessionKey: raw.sessionKey };
+export function mapOpenClawEvent(raw: OpenClawRawEvent, fallbackSeq = 0): KernelEvent {
+  const stream: KernelEventStream = validStreams.has(raw.stream as KernelEventStream)
+    ? (raw.stream as KernelEventStream)
+    : "lifecycle";
+  return {
+    runId: raw.runId,
+    seq: raw.seq ?? fallbackSeq,
+    stream,
+    ts: raw.ts ?? Date.now(),
+    data: raw.data,
+    sessionKey: raw.sessionKey,
+  };
 }

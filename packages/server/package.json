@@ -17,6 +17,7 @@
     "@prisma/client": "^6.0.0",
     "bullmq": "^5.0.0",
     "ioredis": "^5.0.0",
+    "jszip": "^3.10.1",
     "minio": "^8.0.0"
   },
   "devDependencies": {

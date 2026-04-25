@@ -6,18 +6,20 @@ import { createDocumentRoutes } from "./routes/document/index.js";
 import { agentRoutes } from "./routes/agent/index.js";
 import { createAdminRoutes } from "./routes/admin/index.js";
 import { createRenderJobRoutes } from "./routes/render-job/index.js";
+import { createWorkbenchRoutes } from "./routes/workbench/index.js";
 import { createRenderQueue } from "./jobs/render-queue.js";
 import { createRenderWorker } from "./jobs/render-worker.js";
 import { createRenderApplicationService } from "./services/render-application.js";
+import { createWorkbenchApplicationService } from "./services/workbench-application.js";
 import { createStorageService } from "./storage/storage-service.js";
 import { authPlugin, registerAuthRoutes } from "./plugins/auth.js";
+import type { RenderApplicationService } from "./services/render-application.js";
 
 const app = Fastify({ logger: true });
 
 async function start() {
   // --- Infrastructure ---
   const prisma = new PrismaClient();
-  const storageService = await createStorageService();
 
   const redisConnection = {
     host: process.env.REDIS_HOST || "localhost",
@@ -25,17 +27,32 @@ async function start() {
   };
 
   // --- Render queue, worker, and application service ---
-  const renderQueue = createRenderQueue(redisConnection);
-  const renderWorker = createRenderWorker({
-    storageService,
-    prisma,
-    redisConnection,
-  });
-  const renderService = createRenderApplicationService({
-    queue: renderQueue,
-    prisma,
-    storageService,
-  });
+  let renderQueue: ReturnType<typeof createRenderQueue> | undefined;
+  let renderWorker: ReturnType<typeof createRenderWorker> | undefined;
+  let renderService: RenderApplicationService = createDisabledRenderService();
+
+  try {
+    const storageService = await createStorageService();
+    renderQueue = createRenderQueue(redisConnection);
+    renderWorker = createRenderWorker({
+      storageService,
+      prisma,
+      redisConnection,
+    });
+    renderService = createRenderApplicationService({
+      queue: renderQueue,
+      prisma,
+      storageService,
+    });
+  } catch (error) {
+    app.log.warn(
+      {
+        err: error,
+      },
+      "Render infrastructure unavailable; async render routes stay disabled but workbench remains usable",
+    );
+  }
+  const workbenchService = createWorkbenchApplicationService();
 
   // --- Fastify plugins ---
   await app.register(cors, { origin: true });
@@ -48,6 +65,7 @@ async function start() {
   await app.register(agentRoutes, { prefix: "/api/agent" });
   await app.register(createAdminRoutes({ prisma }), { prefix: "/api/admin" });
   await app.register(createRenderJobRoutes({ renderService }), { prefix: "/api/render-jobs" });
+  await app.register(createWorkbenchRoutes({ workbenchService }), { prefix: "/api/workbench" });
 
   // --- Start server ---
   const port = parseInt(process.env.PORT || "3000", 10);
@@ -56,8 +74,8 @@ async function start() {
   // --- Graceful shutdown ---
   const shutdown = async (signal: string) => {
     app.log.info(`Received ${signal}, shutting down...`);
-    await renderWorker.close();
-    await renderQueue.close();
+    await renderWorker?.close();
+    await renderQueue?.close();
     await app.close();
     await prisma.$disconnect();
     process.exit(0);
@@ -71,3 +89,18 @@ start().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
+function createDisabledRenderService(): RenderApplicationService {
+  const error = new Error("Render infrastructure is unavailable in this environment.");
+  return {
+    async requestRender() {
+      throw error;
+    },
+    async getRenderStatus() {
+      throw error;
+    },
+    async getDownloadUrl() {
+      throw error;
+    },
+  };
+}
