@@ -6,8 +6,26 @@ export type { LatexRenderResult } from "./renderer/latex-renderer.js";
 export { StyleResolverCache } from "./style/style-resolver.js";
 export type { ResolvedStyleProfile, ResolvedHeadingStyle, PageLayoutTwips } from "./style/style-resolver.js";
 
-export type { StyleProfileDsl, PageLayout, FontConfig, HeadingStyleMap, CaptionStyle, NumberingConfig, ReferenceFormatConfig } from "./style/style-profile.js";
-export { defaultStyleProfile, computeProfileHash } from "./style/style-profile.js";
+export type {
+  StyleProfileDsl,
+  PageLayout,
+  FontConfig,
+  HeadingStyleMap,
+  CaptionStyle,
+  NumberingConfig,
+  ReferenceFormatConfig,
+  BuiltInStyleProfile,
+  StyleProfileAdjustments,
+} from "./style/style-profile.js";
+export {
+  defaultStyleProfile,
+  computeProfileHash,
+  createStyleProfile,
+  builtInStyleProfiles,
+  listBuiltInStyleProfiles,
+  getBuiltInStyleProfile,
+  applyStyleProfileAdjustments,
+} from "./style/style-profile.js";
 
 export { RenderPlanner } from "./render-planner.js";
 export type { RenderPlan, RenderPlanInput } from "./render-planner.js";

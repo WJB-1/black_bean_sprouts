@@ -3,7 +3,7 @@
     <header class="toolbar">
       <div>
         <h1 class="logo">黑豆芽文档工作台</h1>
-        <p class="subtitle">把未整理原稿整理成结构化文档，再导出 `DOCX` / `LaTeX`。</p>
+        <p class="subtitle">把未整理原稿结构化，再按可调排版导出为 DOCX / LaTeX。</p>
       </div>
       <nav class="toolbar-nav">
         <router-link to="/workbench">工作台</router-link>
@@ -32,14 +32,14 @@
                 accept=".txt,.text,.md,.markdown,.tex,.csv,.json,.yaml,.yml,.html,.docx"
                 @change="handleFilePick"
               />
-              导入文本文件
+              导入文本 / DOCX
             </label>
           </div>
         </div>
 
         <label class="field">
           <span>候选标题</span>
-          <input v-model="title" class="text-input" placeholder="没有标题时可在这里给一个" />
+          <input v-model="title" class="text-input" placeholder="原稿没有稳定标题时可手动填写" />
         </label>
 
         <label class="field field--grow">
@@ -47,7 +47,7 @@
           <textarea
             v-model="rawText"
             class="text-area"
-            placeholder="把原稿直接贴进来，或导入 .txt/.md/.tex 等文本文件"
+            placeholder="直接粘贴原稿，或拖拽 / 导入 .txt、.md、.tex、.docx 等文件"
           />
         </label>
 
@@ -66,6 +66,54 @@
           </div>
         </div>
 
+        <section class="style-panel">
+          <div class="style-panel-header">
+            <div>
+              <h3>导出排版</h3>
+              <p class="hint hint--tight">预设可选，下面的参数也可继续微调。</p>
+            </div>
+            <button class="ghost-btn" type="button" @click="resetStyleSettings">恢复默认</button>
+          </div>
+
+          <label class="field">
+            <span>排版预设</span>
+            <select v-model="exportStyle.styleProfileId" class="text-input" @change="applySelectedProfileDefaults">
+              <option v-for="profile in styleProfiles" :key="profile.id" :value="profile.id">
+                {{ profile.name }}
+              </option>
+            </select>
+          </label>
+
+          <p class="hint hint--tight">{{ selectedStyleDescription }}</p>
+
+          <div class="style-grid">
+            <label class="field">
+              <span>正文字号 (pt)</span>
+              <input v-model.number="exportStyle.bodyFontSizePt" class="text-input" type="number" min="8" max="24" step="0.5" />
+            </label>
+            <label class="field">
+              <span>行距</span>
+              <input v-model.number="exportStyle.lineSpacing" class="text-input" type="number" min="1" max="3" step="0.05" />
+            </label>
+            <label class="field">
+              <span>上边距 (mm)</span>
+              <input v-model.number="exportStyle.marginTopMm" class="text-input" type="number" min="5" max="60" step="1" />
+            </label>
+            <label class="field">
+              <span>下边距 (mm)</span>
+              <input v-model.number="exportStyle.marginBottomMm" class="text-input" type="number" min="5" max="60" step="1" />
+            </label>
+            <label class="field">
+              <span>左边距 (mm)</span>
+              <input v-model.number="exportStyle.marginLeftMm" class="text-input" type="number" min="5" max="60" step="1" />
+            </label>
+            <label class="field">
+              <span>右边距 (mm)</span>
+              <input v-model.number="exportStyle.marginRightMm" class="text-input" type="number" min="5" max="60" step="1" />
+            </label>
+          </div>
+        </section>
+
         <div class="actions">
           <button class="primary-btn" :disabled="generating || !rawText.trim()" @click="generateDocument">
             {{ generating ? "整理中..." : "一键整理" }}
@@ -79,22 +127,33 @@
           <button class="ghost-btn" :disabled="!doc" @click="copyStructuredJson">复制 JSON</button>
         </div>
 
+        <label class="download-setting">
+          <input v-model="downloadWithPicker" type="checkbox" @change="persistDownloadPreference" />
+          <span>导出时手动选择保存位置（Chrome / Edge）</span>
+        </label>
+        <p class="hint hint--tight">
+          关闭时文件进入浏览器默认下载目录；开启时每次弹出“另存为”窗口。
+        </p>
+        <p class="hint hint--tight">
+          当前导出方式：{{ downloadWithPicker ? "每次手动选择位置" : "浏览器默认下载目录" }}
+        </p>
+
         <p v-if="exportMessage" class="message message--success message--inline">{{ exportMessage }}</p>
         <p class="hint">
-          当前基础版支持粘贴原稿或拖拽文本类文件；如果你手里是 Word/PDF，先复制正文或另存为纯文本再喂。
+          支持拖拽或导入文本类文件，也支持导入 DOCX 提取正文。若你手里是 PDF，建议先复制正文再整理。
         </p>
       </section>
 
       <section class="panel output-panel">
         <div class="panel-header">
           <h2>结构化结果</h2>
-          <span v-if="warning" class="warning-badge">降级导入</span>
+          <span v-if="warning" class="warning-badge">已回退导入</span>
         </div>
 
         <div v-if="error" class="message message--error">{{ error }}</div>
         <div v-else-if="warning" class="message message--warning">{{ warning }}</div>
-        <div v-else-if="doc" class="message message--success">结构化完成，可以直接下载导出。</div>
-        <div v-else class="empty-state">右侧会显示整理后的结构预览和原始模型输出。</div>
+        <div v-else-if="doc" class="message message--success">结构化完成，可以直接导出。</div>
+        <div v-else class="empty-state">右侧会显示整理后的结构预览，以及原始模型输出。</div>
 
         <template v-if="doc">
           <div class="metadata-card">
@@ -137,7 +196,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { apiFetch } from "../lib/api.js";
 import type { BlockNode, Doc, SectionBlock } from "@black-bean-sprouts/doc-schema";
 
@@ -147,14 +206,52 @@ type PreviewLine = {
   depth: number;
 };
 
+type SaveFilePickerHandle = {
+  createWritable(): Promise<{
+    write(data: Blob): Promise<void>;
+    close(): Promise<void>;
+  }>;
+};
+
+type PickerWindow = Window & typeof globalThis & {
+  showSaveFilePicker?: (options?: {
+    suggestedName?: string;
+    types?: Array<{
+      description?: string;
+      accept: Record<string, string[]>;
+    }>;
+  }) => Promise<SaveFilePickerHandle>;
+};
+
+type WorkbenchStyleProfile = {
+  id: string;
+  name: string;
+  description: string;
+  defaults: {
+    bodyFontSizePt: number;
+    lineSpacing: number;
+    marginTopMm: number;
+    marginBottomMm: number;
+    marginLeftMm: number;
+    marginRightMm: number;
+  };
+};
+
+type ExportStyleSettings = {
+  styleProfileId: string;
+  bodyFontSizePt: number;
+  lineSpacing: number;
+  marginTopMm: number;
+  marginBottomMm: number;
+  marginLeftMm: number;
+  marginRightMm: number;
+};
+
 const EXAMPLE_TITLE = "示例医学原稿";
 const EXAMPLE_RAW_TEXT = `慢性肾病患者营养支持路径优化研究
 
 摘要
-目的：评估分层营养支持方案对慢性肾病住院患者恢复效果的影响。
-方法：回顾性纳入 2024 年 1 月至 2025 年 6 月收治的 86 例患者，比较常规饮食管理与强化营养支持两组的实验室指标、住院日和并发症发生率。
-结果：强化营养支持组在白蛋白、前白蛋白及体重维持方面优于对照组，平均住院日缩短 2.3 天。
-结论：针对慢性肾病患者构建标准化营养支持流程具有临床推广价值。
+目的：评估分层营养支持方案对慢性肾病住院患者恢复效果的影响。方法：回顾性纳入 2024 年 1 月至 2025 年 6 月收治的 86 例患者，比较常规饮食管理与强化营养支持两组的实验室指标、住院日和并发症发生率。结果：强化营养支持组在白蛋白、前白蛋白及体重维持方面优于对照组，平均住院日缩短 2.3 天。结论：针对慢性肾病患者构建标准化营养支持流程具有临床推广价值。
 
 1 引言
 慢性肾病患者常伴随代谢紊乱与蛋白能量消耗，营养管理是综合治疗的重要组成部分。
@@ -162,6 +259,7 @@ const EXAMPLE_RAW_TEXT = `慢性肾病患者营养支持路径优化研究
 2 资料与方法
 2.1 研究对象
 纳入标准包括年龄 18 岁以上、住院时间超过 72 小时、具备完整实验室资料。
+
 2.2 观察指标
 主要指标包括白蛋白、前白蛋白、血红蛋白、住院日。
 
@@ -170,6 +268,16 @@ const EXAMPLE_RAW_TEXT = `慢性肾病患者营养支持路径优化研究
 
 4 讨论
 标准化路径有助于减少沟通成本并提高依从性。`;
+
+const DEFAULT_STYLE: ExportStyleSettings = {
+  styleProfileId: "default",
+  bodyFontSizePt: 12,
+  lineSpacing: 1.5,
+  marginTopMm: 25,
+  marginBottomMm: 25,
+  marginLeftMm: 30,
+  marginRightMm: 25,
+};
 
 const title = ref("");
 const rawText = ref("");
@@ -183,6 +291,11 @@ const warning = ref("");
 const exportMessage = ref("");
 const modelOutput = ref("");
 const doc = ref<Doc | null>(null);
+const styleProfiles = ref<WorkbenchStyleProfile[]>([]);
+const DOWNLOAD_WITH_PICKER_KEY = "bbs.workbench.downloadWithPicker";
+const EXPORT_STYLE_KEY = "bbs.workbench.exportStyle";
+const downloadWithPicker = ref(loadStoredBoolean(DOWNLOAD_WITH_PICKER_KEY, false));
+const exportStyle = ref<ExportStyleSettings>(loadStoredStyleSettings());
 
 const prettyDoc = computed(() => (doc.value ? JSON.stringify(doc.value, null, 2) : ""));
 const blockCount = computed(() => countBlocks(doc.value?.children ?? []));
@@ -198,6 +311,59 @@ const canClear = computed(
     Boolean(modelOutput.value),
 );
 const previewLines = computed(() => buildPreviewLines(doc.value?.children ?? []));
+const selectedStyleDescription = computed(() => {
+  const selected = styleProfiles.value.find((item) => item.id === exportStyle.value.styleProfileId);
+  return selected?.description ?? "当前使用自定义导出参数。";
+});
+
+watch(
+  exportStyle,
+  () => {
+    persistStyleSettings();
+  },
+  { deep: true },
+);
+
+onMounted(async () => {
+  await loadStyleProfiles();
+});
+
+async function loadStyleProfiles() {
+  try {
+    const profiles = await apiFetch<WorkbenchStyleProfile[]>("/workbench/style-profiles", {
+      method: "GET",
+    });
+    styleProfiles.value = profiles;
+    if (!profiles.some((item) => item.id === exportStyle.value.styleProfileId)) {
+      const fallbackProfile = profiles[0];
+      if (fallbackProfile) {
+        exportStyle.value = {
+          styleProfileId: fallbackProfile.id,
+          bodyFontSizePt: fallbackProfile.defaults.bodyFontSizePt,
+          lineSpacing: fallbackProfile.defaults.lineSpacing,
+          marginTopMm: fallbackProfile.defaults.marginTopMm,
+          marginBottomMm: fallbackProfile.defaults.marginBottomMm,
+          marginLeftMm: fallbackProfile.defaults.marginLeftMm,
+          marginRightMm: fallbackProfile.defaults.marginRightMm,
+        };
+      }
+    }
+  } catch {
+    styleProfiles.value = [{
+      id: "default",
+      name: "默认学术版",
+      description: "默认学术版式。",
+      defaults: {
+        bodyFontSizePt: DEFAULT_STYLE.bodyFontSizePt,
+        lineSpacing: DEFAULT_STYLE.lineSpacing,
+        marginTopMm: DEFAULT_STYLE.marginTopMm,
+        marginBottomMm: DEFAULT_STYLE.marginBottomMm,
+        marginLeftMm: DEFAULT_STYLE.marginLeftMm,
+        marginRightMm: DEFAULT_STYLE.marginRightMm,
+      },
+    }];
+  }
+}
 
 async function generateDocument() {
   if (!rawText.value.trim()) {
@@ -244,6 +410,7 @@ async function downloadFile(format: "docx" | "latex") {
   error.value = "";
   exportMessage.value = "";
   exportingFormat.value = format;
+
   try {
     const response = await fetch("/api/workbench/export", {
       method: "POST",
@@ -253,26 +420,78 @@ async function downloadFile(format: "docx" | "latex") {
       body: JSON.stringify({
         format,
         doc: doc.value,
+        style: buildExportStylePayload(),
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`导出失败：${response.status}`);
+      const failureText = await response.text();
+      throw new Error(failureText.trim() || `导出失败：${response.status}`);
     }
 
-    const blob = await response.blob();
+    const arrayBuffer = await response.arrayBuffer();
+    const blob = new Blob([arrayBuffer], {
+      type: response.headers.get("Content-Type") ?? getMimeType(format),
+    });
     const serverFileName = extractDownloadName(response.headers.get("Content-Disposition"));
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = serverFileName ?? getDownloadName(format);
-    anchor.click();
-    URL.revokeObjectURL(url);
-    exportMessage.value = `已导出 ${serverFileName ?? getDownloadName(format)}。`;
+    const fileName = serverFileName ?? getDownloadName(format);
+    const savedWithPicker = await saveExportBlob(blob, fileName, format);
+    exportMessage.value = savedWithPicker
+      ? `已保存到你刚刚选择的位置：${fileName}`
+      : `已交给浏览器下载：${fileName}`;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "导出失败。";
   } finally {
     exportingFormat.value = null;
+  }
+}
+
+function buildExportStylePayload() {
+  return {
+    styleProfileId: exportStyle.value.styleProfileId,
+    bodyFontSizePt: exportStyle.value.bodyFontSizePt,
+    lineSpacing: exportStyle.value.lineSpacing,
+    marginTopMm: exportStyle.value.marginTopMm,
+    marginBottomMm: exportStyle.value.marginBottomMm,
+    marginLeftMm: exportStyle.value.marginLeftMm,
+    marginRightMm: exportStyle.value.marginRightMm,
+  };
+}
+
+function resetStyleSettings() {
+  exportStyle.value = { ...DEFAULT_STYLE };
+}
+
+function applySelectedProfileDefaults() {
+  const selected = styleProfiles.value.find((item) => item.id === exportStyle.value.styleProfileId);
+  if (!selected) {
+    return;
+  }
+
+  exportStyle.value = {
+    styleProfileId: selected.id,
+    bodyFontSizePt: selected.defaults.bodyFontSizePt,
+    lineSpacing: selected.defaults.lineSpacing,
+    marginTopMm: selected.defaults.marginTopMm,
+    marginBottomMm: selected.defaults.marginBottomMm,
+    marginLeftMm: selected.defaults.marginLeftMm,
+    marginRightMm: selected.defaults.marginRightMm,
+  };
+}
+
+function persistDownloadPreference() {
+  try {
+    window.localStorage.setItem(DOWNLOAD_WITH_PICKER_KEY, downloadWithPicker.value ? "1" : "0");
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function persistStyleSettings() {
+  try {
+    window.localStorage.setItem(EXPORT_STYLE_KEY, JSON.stringify(exportStyle.value));
+  } catch {
+    // ignore storage failures
   }
 }
 
@@ -306,8 +525,9 @@ async function readFileIntoWorkbench(file: File) {
   error.value = "";
   exportMessage.value = "";
   importing.value = true;
-  if (isDocxFile(file.name)) {
-    try {
+
+  try {
+    if (isDocxFile(file.name)) {
       const contentBase64 = arrayBufferToBase64(await file.arrayBuffer());
       const response = await apiFetch<{
         rawText: string;
@@ -324,20 +544,19 @@ async function readFileIntoWorkbench(file: File) {
       if (!title.value.trim()) {
         title.value = response.title ?? file.name.replace(/\.[^.]+$/u, "");
       }
-    } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : "DOCX 导入失败。";
-      importing.value = false;
-      return;
+    } else {
+      rawText.value = await file.text();
+      if (!title.value.trim()) {
+        title.value = file.name.replace(/\.[^.]+$/u, "");
+      }
     }
-  } else {
-    rawText.value = await file.text();
-    if (!title.value.trim()) {
-      title.value = file.name.replace(/\.[^.]+$/u, "");
-    }
-  }
 
-  sourceFileName.value = file.name;
-  importing.value = false;
+    sourceFileName.value = file.name;
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "文件导入失败。";
+  } finally {
+    importing.value = false;
+  }
 }
 
 function loadExampleDraft() {
@@ -374,8 +593,81 @@ async function copyStructuredJson() {
 }
 
 function getDownloadName(format: "docx" | "latex"): string {
-  const base = slugify(doc.value?.metadata.title || title.value || "document");
+  const base = sanitizeFileName(doc.value?.metadata.title || title.value || "document");
   return format === "docx" ? `${base}.docx` : `${base}.tex`;
+}
+
+function getMimeType(format: "docx" | "latex"): string {
+  return format === "docx"
+    ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    : "application/x-tex; charset=utf-8";
+}
+
+function loadStoredBoolean(key: string, fallback: boolean): boolean {
+  try {
+    const value = window.localStorage.getItem(key);
+    if (value === "1") {
+      return true;
+    }
+    if (value === "0") {
+      return false;
+    }
+  } catch {
+    // ignore storage failures
+  }
+  return fallback;
+}
+
+function loadStoredStyleSettings(): ExportStyleSettings {
+  try {
+    const raw = window.localStorage.getItem(EXPORT_STYLE_KEY);
+    if (!raw) {
+      return { ...DEFAULT_STYLE };
+    }
+    const parsed = JSON.parse(raw) as Partial<ExportStyleSettings>;
+    return {
+      styleProfileId: typeof parsed.styleProfileId === "string" ? parsed.styleProfileId : DEFAULT_STYLE.styleProfileId,
+      bodyFontSizePt: toNumber(parsed.bodyFontSizePt, DEFAULT_STYLE.bodyFontSizePt),
+      lineSpacing: toNumber(parsed.lineSpacing, DEFAULT_STYLE.lineSpacing),
+      marginTopMm: toNumber(parsed.marginTopMm, DEFAULT_STYLE.marginTopMm),
+      marginBottomMm: toNumber(parsed.marginBottomMm, DEFAULT_STYLE.marginBottomMm),
+      marginLeftMm: toNumber(parsed.marginLeftMm, DEFAULT_STYLE.marginLeftMm),
+      marginRightMm: toNumber(parsed.marginRightMm, DEFAULT_STYLE.marginRightMm),
+    };
+  } catch {
+    return { ...DEFAULT_STYLE };
+  }
+}
+
+async function saveExportBlob(blob: Blob, fileName: string, format: "docx" | "latex"): Promise<boolean> {
+  const pickerWindow = window as PickerWindow;
+  if (downloadWithPicker.value && pickerWindow.showSaveFilePicker) {
+    const handle = await pickerWindow.showSaveFilePicker({
+      suggestedName: fileName,
+      types: [
+        {
+          description: format === "docx" ? "Word Document" : "LaTeX File",
+          accept: {
+            [getMimeType(format)]: [format === "docx" ? ".docx" : ".tex"],
+          },
+        },
+      ],
+    });
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return true;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  return false;
 }
 
 function summarizeBlock(block: BlockNode): string {
@@ -490,7 +782,7 @@ function inlineText(children: readonly { type: string; text?: string; latex?: st
 }
 
 function tableColumnCount(block: Extract<BlockNode, { type: "table" }>): number {
-  return Math.max(block.headerRow?.cells.length ?? 0, ...block.rows.map((row) => row.cells.length), 0);
+  return Math.max(0, block.headerRow?.cells.length ?? 0, ...block.rows.map((row) => row.cells.length));
 }
 
 function splitRawTextIntoParagraphs(value: string): string[] {
@@ -523,17 +815,13 @@ function countSections(blocks: readonly BlockNode[]): number {
   }, 0);
 }
 
-function slugify(value: string): string {
-  return (
-    value
-      .trim()
-      .normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^\w-]+/gu, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "")
-      .toLowerCase() || "document"
-  );
+function sanitizeFileName(value: string): string {
+  return value
+    .trim()
+    .normalize("NFC")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim() || "document";
 }
 
 function extractDownloadName(contentDisposition: string | null): string | undefined {
@@ -542,7 +830,11 @@ function extractDownloadName(contentDisposition: string | null): string | undefi
   }
   const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
   if (utf8Match?.[1]) {
-    return decodeURIComponent(utf8Match[1]);
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
   }
   const basicMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
   return basicMatch?.[1];
@@ -561,6 +853,10 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
     binary += String.fromCharCode(...chunk);
   }
   return btoa(binary);
+}
+
+function toNumber(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 </script>
 
@@ -653,6 +949,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 .panel-header h2,
+.style-panel h3,
 .outline-card h3,
 .metadata-card h3 {
   margin: 0;
@@ -682,7 +979,8 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 .text-input,
-.text-area {
+.text-area,
+select.text-input {
   border: 1px solid #d5deea;
   border-radius: 12px;
   padding: 12px 14px;
@@ -690,6 +988,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   line-height: 1.6;
   outline: none;
   transition: border-color 0.15s ease;
+  background: #fff;
 }
 
 .text-input:focus,
@@ -698,9 +997,30 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 .text-area {
-  min-height: 420px;
+  min-height: 360px;
   resize: vertical;
   flex: 1;
+}
+
+.style-panel {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid #e6ebf2;
+  border-radius: 14px;
+  background: #fafcff;
+}
+
+.style-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.style-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .actions {
@@ -784,6 +1104,23 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   margin: 14px 0 0;
   font-size: 13px;
   color: #627286;
+}
+
+.hint--tight {
+  margin-top: 8px;
+}
+
+.download-setting {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #42536a;
+}
+
+.download-setting input {
+  margin: 0;
 }
 
 .output-panel {
@@ -892,7 +1229,8 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
     flex-direction: column;
   }
 
-  .stats-grid {
+  .stats-grid,
+  .style-grid {
     grid-template-columns: 1fr;
   }
 }

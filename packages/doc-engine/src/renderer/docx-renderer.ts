@@ -1,5 +1,5 @@
 import {
-  Document, Packer, Paragraph, TextRun, HeadingLevel,
+  Document, Packer, Paragraph, TextRun, HeadingLevel, LineRuleType,
   Table, TableRow, TableCell, WidthType, AlignmentType,
 } from "docx";
 import type { Doc, BlockNode, ParagraphBlock, HeadingBlock, FigureBlock, TableBlock as DocTable, TableRow as DocTableRow, FormulaBlock, SectionBlock, AbstractBlock, ReferenceListBlock, InlineNode, ReferenceItem } from "@black-bean-sprouts/doc-schema";
@@ -113,7 +113,11 @@ export class DocxRenderer {
   private renderParagraph(para: ParagraphBlock): Paragraph {
     return new Paragraph({
       children: this.renderInlines(para.children),
-      spacing: { line: Math.round(this.profile.fonts.defaultSize * this.profile.fonts.lineSpacing) },
+      spacing: {
+        line: getLineSpacingTwip(this.profile.fonts.defaultSize, this.profile.fonts.lineSpacing),
+        lineRule: LineRuleType.AUTO,
+        after: 120,
+      },
     });
   }
 
@@ -131,7 +135,14 @@ export class DocxRenderer {
     const result: Paragraph[] = [];
     result.push(new Paragraph({ children: [new TextRun({ text: "Abstract", bold: true, size: 28 })], spacing: { before: 300, after: 100 } }));
     for (const para of abstract.children) {
-      result.push(new Paragraph({ children: this.renderInlines(para.children), spacing: { line: Math.round(this.profile.fonts.defaultSize * this.profile.fonts.lineSpacing) } }));
+      result.push(new Paragraph({
+        children: this.renderInlines(para.children),
+        spacing: {
+          line: getLineSpacingTwip(this.profile.fonts.defaultSize, this.profile.fonts.lineSpacing),
+          lineRule: LineRuleType.AUTO,
+          after: 120,
+        },
+      }));
     }
     return result;
   }
@@ -216,3 +227,6 @@ export class DocxRenderer {
 }
 
 function mmToTwip(mm: number): number { return Math.round(mm * 56.7); }
+function getLineSpacingTwip(halfPointSize: number, multiplier: number): number {
+  return Math.round(halfPointSize * 10 * multiplier);
+}

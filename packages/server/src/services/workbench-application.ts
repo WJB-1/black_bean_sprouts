@@ -1,4 +1,4 @@
-import { Buffer } from "node:buffer";
+﻿import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import JSZip from "jszip";
 import {
@@ -19,7 +19,13 @@ import {
   type TableCell,
   type TableRow,
 } from "@black-bean-sprouts/doc-schema";
-import { DocxRenderer, LatexRenderer } from "@black-bean-sprouts/doc-engine";
+import {
+  applyStyleProfileAdjustments,
+  DocxRenderer,
+  getBuiltInStyleProfile,
+  LatexRenderer,
+  listBuiltInStyleProfiles,
+} from "@black-bean-sprouts/doc-engine";
 import { runOpenClawTextPrompt } from "../integration/openclaw-runtime.js";
 import { runSiliconFlowTextPrompt } from "../integration/siliconflow-runtime.js";
 
@@ -46,6 +52,30 @@ export type WorkbenchExportResult = {
   readonly contentType: string;
 };
 
+export type WorkbenchStyleProfileSummary = {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly defaults: {
+    readonly bodyFontSizePt: number;
+    readonly lineSpacing: number;
+    readonly marginTopMm: number;
+    readonly marginBottomMm: number;
+    readonly marginLeftMm: number;
+    readonly marginRightMm: number;
+  };
+};
+
+export type WorkbenchExportStyleSettings = {
+  readonly styleProfileId?: string;
+  readonly bodyFontSizePt?: number;
+  readonly lineSpacing?: number;
+  readonly marginTopMm?: number;
+  readonly marginBottomMm?: number;
+  readonly marginLeftMm?: number;
+  readonly marginRightMm?: number;
+};
+
 export type WorkbenchImportResult = {
   readonly rawText: string;
   readonly title?: string;
@@ -55,7 +85,12 @@ export type WorkbenchImportResult = {
 export type WorkbenchApplicationService = {
   importSource(params: { fileName: string; contentBase64: string }): Promise<WorkbenchImportResult>;
   generateDocument(params: { rawText: string; title?: string }): Promise<WorkbenchGenerateResult>;
-  exportDocument(params: { doc: Doc; format: "docx" | "latex" }): Promise<WorkbenchExportResult>;
+  exportDocument(params: {
+    doc: Doc;
+    format: "docx" | "latex";
+    style?: WorkbenchExportStyleSettings;
+  }): Promise<WorkbenchExportResult>;
+  listStyleProfiles(): Promise<readonly WorkbenchStyleProfileSummary[]>;
 };
 
 export type WorkbenchPromptRunner = (params: {
@@ -73,6 +108,22 @@ export function createWorkbenchApplicationService(
   const runPrompt = deps.runPrompt ?? resolveWorkbenchPromptRunner();
 
   return {
+    async listStyleProfiles() {
+      return listBuiltInStyleProfiles().map((item) => ({
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        defaults: {
+          bodyFontSizePt: item.profile.fonts.defaultSize / 2,
+          lineSpacing: item.profile.fonts.lineSpacing,
+          marginTopMm: item.profile.pageLayout.marginTop,
+          marginBottomMm: item.profile.pageLayout.marginBottom,
+          marginLeftMm: item.profile.pageLayout.marginLeft,
+          marginRightMm: item.profile.pageLayout.marginRight,
+        },
+      }));
+    },
+
     async importSource(params) {
       const fileName = params.fileName.trim();
       if (!fileName) {
@@ -132,7 +183,7 @@ export function createWorkbenchApplicationService(
             doc: buildFallbackDoc(rawText, fallbackTitle),
             modelOutput,
             degraded: true,
-            warning: `模型返回的结构不合法，已回退为段落导入：${validation.errors.join("; ")}`,
+            warning: `模型返回的结构不合法，已回退为段落导入：${validation.errors.join("; ")}`, 
           };
         }
 
@@ -155,23 +206,25 @@ export function createWorkbenchApplicationService(
     },
 
     async exportDocument(params) {
+      const styleProfile = resolveWorkbenchExportStyle(params.style);
+
       if (params.format === "docx") {
-        const renderer = new DocxRenderer();
+        const renderer = new DocxRenderer(styleProfile);
         const result = await renderer.render(params.doc);
         return {
           buffer: result.buffer,
-          fileName: `${slugifyFileName(params.doc.metadata.title || "document")}.docx`,
+          fileName: `${sanitizeDownloadFileName(params.doc.metadata.title || "document")}.docx`,
           contentType:
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         };
       }
 
       if (params.format === "latex") {
-        const renderer = new LatexRenderer();
+        const renderer = new LatexRenderer(styleProfile);
         const result = await renderer.render(params.doc);
         return {
           buffer: result.buffer,
-          fileName: `${slugifyFileName(params.doc.metadata.title || "document")}.tex`,
+          fileName: `${sanitizeDownloadFileName(params.doc.metadata.title || "document")}.tex`,
           contentType: "application/x-tex; charset=utf-8",
         };
       }
@@ -196,40 +249,46 @@ function resolveWorkbenchPromptRunner(): WorkbenchPromptRunner {
 
 function buildStructuringPrompt(params: { title: string; rawText: string }): string {
   return [
-    "你是科研文档结构化助手。",
-    "请把下面的未整理原稿整理成一个简化 JSON 对象，只能输出 JSON，不要输出 markdown、解释、代码块围栏。",
-    "JSON 顶层字段：",
-    '{',
-    '  "title": "文档标题",',
-    '  "subtitle": "可选",',
-    '  "institution": "可选",',
-    '  "keywords": ["关键词1", "关键词2"],',
-    '  "authors": [{"name": "作者名", "affiliation": "可选"}],',
+    "You are a research-document structuring assistant.",
+    "Return exactly one valid JSON object and nothing else.",
+    "Do not return markdown, prose, comments, or code fences.",
+    "The top-level JSON value must be an object with a `blocks` array.",
+    "Never return a bare block object. Never return a bare array.",
+    "Use this schema:",
+    "{",
+    '  "title": "Document title",',
+    '  "subtitle": "Optional subtitle",',
+    '  "institution": "Optional institution",',
+    '  "keywords": ["keyword 1", "keyword 2"],',
+    '  "authors": [{"name": "Author name", "affiliation": "Optional affiliation"}],',
     '  "blocks": [',
-    '    {"type":"abstract","paragraphs":["摘要段落1","摘要段落2"]},',
-    '    {"type":"section","title":"一级章节","children":[...块...]},',
-    '    {"type":"heading","level":2,"text":"小标题"},',
-    '    {"type":"paragraph","text":"正文段落"},',
-    '    {"type":"formula","latex":"E=mc^2","caption":"可选"},',
-    '    {"type":"table","header":["列1","列2"],"rows":[["a","b"]],"caption":"可选"},',
-    '    {"type":"figure","src":"image.png","alt":"图描述","caption":"可选"},',
-    '    {"type":"reference-list","items":[{"key":"ref1","authors":["A"],"title":"题名","year":2024,"source":"期刊/会议/出版社","doi":"可选","url":"可选"}]}',
+    '    {"type":"abstract","paragraphs":["Abstract paragraph 1","Abstract paragraph 2"]},',
+    '    {"type":"section","title":"Section title","children":[...blocks...]},',
+    '    {"type":"heading","level":2,"text":"Heading text"},',
+    '    {"type":"paragraph","text":"Body paragraph"},',
+    '    {"type":"formula","latex":"E=mc^2","caption":"Optional caption"},',
+    '    {"type":"table","header":["Col 1","Col 2"],"rows":[["a","b"]],"caption":"Optional caption"},',
+    '    {"type":"figure","src":"image.png","alt":"Figure alt text","caption":"Optional caption"},',
+    '    {"type":"reference-list","items":[{"key":"ref1","authors":["A"],"title":"Reference title","year":2024,"source":"Journal or publisher","doi":"Optional DOI","url":"Optional URL"}]}',
     "  ]",
     "}",
-    "要求：",
-    "1. 只能使用上述 block type。",
-    "2. 不要输出 id、version、marks、inline children，由系统后处理。",
-    "3. 正文尽量整理出清晰层级；无法判断时保留为 paragraph。",
-    "4. 不要编造不存在的作者、年份、参考文献、图片路径。",
-    "5. 公式请保留为 LaTeX 字符串。",
-    `6. 如果原稿没有可靠标题，可使用这个候选标题：${params.title}`,
-    "7. 保留原文关键信息，清理明显的断行噪音和重复空行。",
-    "原稿开始：",
+    "Valid minimal example:",
+    '{"title":"Fallback title","subtitle":"","institution":"","keywords":[],"authors":[],"blocks":[{"type":"paragraph","text":"Body paragraph"}]}',
+    "Rules:",
+    "1. Use only the block types listed above.",
+    "2. Do not output id, version, marks, or inline children.",
+    "3. Keep the structure faithful to the source draft.",
+    "4. If the structure is unclear, prefer paragraph blocks instead of inventing sections.",
+    "5. Do not invent authors, references, figures, years, or institutions that are not present.",
+    "6. Keep formulas as LaTeX strings.",
+    `7. If the draft has no reliable title, use this fallback title: ${params.title}`,
+    "8. If information is missing, use empty strings or empty arrays instead of malformed JSON.",
+    "9. If you only identify one block, still wrap it inside the top-level `blocks` array.",
+    "Raw draft starts:",
     params.rawText,
-    "原稿结束。",
+    "Raw draft ends.",
   ].join("\n");
 }
-
 function parseStructuredDraft(modelOutput: string): StructuredDraft {
   const trimmed = modelOutput.trim();
   const candidates = collectJsonCandidates(trimmed);
@@ -247,10 +306,7 @@ function parseStructuredDraft(modelOutput: string): StructuredDraft {
     for (const normalizedCandidate of normalizedCandidates) {
       try {
         const parsed = JSON.parse(normalizedCandidate) as unknown;
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          throw new Error("模型返回的顶层不是对象。");
-        }
-        return parsed as StructuredDraft;
+        return normalizeStructuredDraftPayload(parsed);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
       }
@@ -259,7 +315,6 @@ function parseStructuredDraft(modelOutput: string): StructuredDraft {
 
   throw new Error(lastError?.message ?? "模型返回的 JSON 无法解析。");
 }
-
 async function parseStructuredDraftWithRecovery(params: {
   modelOutput: string;
   fallbackTitle: string;
@@ -286,20 +341,18 @@ async function parseStructuredDraftWithRecovery(params: {
     }
   }
 }
-
 function collectJsonCandidates(value: string): string[] {
   const trimmed = value.trim();
   const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const extractedObject = extractJsonObject(trimmed);
+  const extractedValues = extractBalancedJsonValues(trimmed);
   return Array.from(
     new Set(
-      [fencedMatch?.[1]?.trim(), extractedObject, trimmed]
+      [fencedMatch?.[1]?.trim(), ...extractedValues, trimmed]
         .map((item) => item?.trim())
         .filter((item): item is string => Boolean(item)),
     ),
   );
 }
-
 function sanitizeLooseJsonCandidate(value: string): string {
   return value
     .trim()
@@ -318,24 +371,120 @@ function buildJsonRepairPrompt(params: {
     "Return exactly one valid JSON object and nothing else.",
     "Allowed top-level keys: title, subtitle, institution, keywords, authors, blocks.",
     "Allowed block types: abstract, section, heading, paragraph, formula, table, figure, reference-list.",
-    "Fix syntax issues such as trailing commas, stray prose, code fences, comments, or broken quotes.",
-    "Do not invent facts that are not present in the draft.",
+    "authors must be an array. blocks must be an array.",
+    "If the malformed content is a bare block object or a bare array, wrap it into a top-level object with a `blocks` array.",
+    "Fix syntax issues such as trailing commas, stray prose, code fences, comments, broken quotes, and malformed arrays.",
+    "Delete any text that is not valid JSON. Do not invent facts that are not present in the draft.",
     `Fallback title: ${params.fallbackTitle}`,
+    '{"title":"Fallback title","subtitle":"","institution":"","keywords":[],"authors":[],"blocks":[{"type":"paragraph","text":"Body paragraph"}]}',
     "Malformed content starts:",
     params.modelOutput,
     "Malformed content ends.",
   ].join("\n");
 }
+function extractBalancedJsonValues(value: string): string[] {
+  const results: string[] = [];
+  let startIndex = -1;
+  let depth = 0;
+  let closeChar = "";
+  let inString = false;
+  let escaped = false;
 
-function extractJsonObject(value: string): string | undefined {
-  const first = value.indexOf("{");
-  const last = value.lastIndexOf("}");
-  if (first < 0 || last <= first) {
-    return undefined;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{" || char === "[") {
+      if (depth === 0) {
+        startIndex = index;
+        closeChar = char === "{" ? "}" : "]";
+      }
+      depth += 1;
+      continue;
+    }
+
+    if (char === closeChar) {
+      if (depth > 0) {
+        depth -= 1;
+        if (depth === 0 && startIndex >= 0) {
+          results.push(value.slice(startIndex, index + 1));
+          startIndex = -1;
+          closeChar = "";
+        }
+      }
+    }
   }
-  return value.slice(first, last + 1);
+
+  return results;
 }
 
+function normalizeStructuredDraftPayload(value: unknown): StructuredDraft {
+  if (Array.isArray(value)) {
+    return { blocks: value };
+  }
+
+  if (!value || typeof value !== "object") {
+    throw new Error("模型返回的顶层不是对象。");
+  }
+
+  const draft = value as StructuredDraft & Record<string, unknown>;
+
+  if (Array.isArray(draft.blocks) || Array.isArray(draft.children)) {
+    return draft;
+  }
+
+  if (looksLikeLooseBlock(draft)) {
+    return {
+      ...(typeof draft.title === "string" ? { title: draft.title } : {}),
+      blocks: [draft],
+    };
+  }
+
+  if (typeof draft.abstract === "string" && draft.abstract.trim()) {
+    return {
+      ...(typeof draft.title === "string" ? { title: draft.title } : {}),
+      blocks: [{ type: "abstract", paragraphs: [draft.abstract] }],
+    };
+  }
+
+  if (typeof draft.content === "string" && draft.content.trim()) {
+    return {
+      ...(typeof draft.title === "string" ? { title: draft.title } : {}),
+      blocks: [{ type: "paragraph", text: draft.content }],
+    };
+  }
+
+  return draft;
+}
+
+function looksLikeLooseBlock(value: Record<string, unknown>): boolean {
+  const type = typeof value.type === "string" ? value.type : "";
+  return [
+    "abstract",
+    "section",
+    "heading",
+    "paragraph",
+    "formula",
+    "table",
+    "figure",
+    "reference-list",
+  ].includes(type);
+}
 function convertDraftToDoc(draft: StructuredDraft, fallbackTitle: string): Doc {
   const idFactory = createIdFactory();
   const title =
@@ -350,12 +499,12 @@ function convertDraftToDoc(draft: StructuredDraft, fallbackTitle: string): Doc {
     version: 0,
     metadata: {
       title,
-    ...(normalizeOptionalString(draft.subtitle) ? { subtitle: normalizeOptionalString(draft.subtitle) } : {}),
-    ...(normalizeOptionalString(draft.institution)
-      ? { institution: normalizeOptionalString(draft.institution) }
-      : {}),
-    ...resolveKeywords(draft.keywords),
-    ...resolveAuthors(draft.authors),
+      ...(normalizeOptionalString(draft.subtitle) ? { subtitle: normalizeOptionalString(draft.subtitle) } : {}),
+      ...(normalizeOptionalString(draft.institution)
+        ? { institution: normalizeOptionalString(draft.institution) }
+        : {}),
+      ...resolveKeywords(draft.keywords),
+      ...resolveAuthors(draft.authors),
     },
     children: blocks.map((block) => toBlockNode(block, idFactory)).filter(isDefined),
   };
@@ -882,17 +1031,52 @@ function getLowercaseFileExtension(fileName: string): string {
   return match?.[0]?.toLowerCase() ?? "";
 }
 
-function slugifyFileName(value: string): string {
+function resolveWorkbenchExportStyle(style: WorkbenchExportStyleSettings | undefined) {
+  const selected = getBuiltInStyleProfile(style?.styleProfileId);
+  if (!selected) {
+    throw new Error(`Unknown style profile: ${style?.styleProfileId}`);
+  }
+
+  return applyStyleProfileAdjustments(selected.profile, {
+    ...(style?.bodyFontSizePt !== undefined
+      ? { bodyFontSize: clampNumber(style.bodyFontSizePt, 8, 24) * 2 }
+      : {}),
+    ...(style?.lineSpacing !== undefined
+      ? { lineSpacing: clampNumber(style.lineSpacing, 1, 3) }
+      : {}),
+    ...(style?.marginTopMm !== undefined
+      ? { marginTop: clampNumber(style.marginTopMm, 5, 60) }
+      : {}),
+    ...(style?.marginBottomMm !== undefined
+      ? { marginBottom: clampNumber(style.marginBottomMm, 5, 60) }
+      : {}),
+    ...(style?.marginLeftMm !== undefined
+      ? { marginLeft: clampNumber(style.marginLeftMm, 5, 60) }
+      : {}),
+    ...(style?.marginRightMm !== undefined
+      ? { marginRight: clampNumber(style.marginRightMm, 5, 60) }
+      : {}),
+  });
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.min(max, Math.max(min, value));
+}
+
+function sanitizeDownloadFileName(value: string): string {
   const normalized = value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .toLowerCase();
+    .normalize("NFC")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
   return normalized || "document";
 }
 
 function isDefined<T>(value: T | undefined | null): value is T {
   return value !== undefined && value !== null;
 }
+
+

@@ -28,8 +28,16 @@ export class LatexRenderer {
   constructor(private readonly profile: StyleProfileDsl = defaultStyleProfile) {}
 
   async render(doc: Doc): Promise<LatexRenderResult> {
+    const documentFontSize = resolveLatexFontSize(this.profile.fonts.defaultSize);
+    const geometry = [
+      `top=${this.profile.pageLayout.marginTop}mm`,
+      `bottom=${this.profile.pageLayout.marginBottom}mm`,
+      `left=${this.profile.pageLayout.marginLeft}mm`,
+      `right=${this.profile.pageLayout.marginRight}mm`,
+    ].join(", ");
+
     const lines: string[] = [
-      "\\documentclass[12pt]{article}",
+      `\\documentclass[${documentFontSize}]{article}`,
       "\\usepackage[utf8]{inputenc}",
       "\\usepackage[T1]{fontenc}",
       "\\usepackage{geometry}",
@@ -42,7 +50,7 @@ export class LatexRenderer {
       "\\usepackage{amsmath}",
       "\\usepackage{amssymb}",
       "\\usepackage{setspace}",
-      "\\geometry{margin=1in}",
+      `\\geometry{${geometry}}`,
       `\\setstretch{${Math.max(this.profile.fonts.lineSpacing, 1).toFixed(2)}}`,
       "\\begin{document}",
       `\\title{${escapeLatex(doc.metadata.title)}}`,
@@ -312,4 +320,15 @@ function escapeLatex(value: string): string {
 
 function escapeLatexForCommand(value: string): string {
   return value.replace(/\\/g, "/").replace(/([{}%#])/g, "\\$1");
+}
+
+function resolveLatexFontSize(halfPointSize: number): "10pt" | "11pt" | "12pt" {
+  const pointSize = Math.max(halfPointSize / 2, 10);
+  if (pointSize <= 10.5) {
+    return "10pt";
+  }
+  if (pointSize <= 11.5) {
+    return "11pt";
+  }
+  return "12pt";
 }

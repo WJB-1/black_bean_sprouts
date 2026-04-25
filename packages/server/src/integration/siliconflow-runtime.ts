@@ -50,10 +50,32 @@ export async function runSiliconFlowTextPrompt(params: {
     throw new Error("SILICONFLOW_API_KEY is required");
   }
 
+  try {
+    return await requestSiliconFlowCompletion({
+      apiKey,
+      message: params.message,
+      jsonObjectMode: true,
+    });
+  } catch (error) {
+    return requestSiliconFlowCompletion({
+      apiKey,
+      message: params.message,
+      jsonObjectMode: false,
+      priorError: error,
+    });
+  }
+}
+
+async function requestSiliconFlowCompletion(params: {
+  apiKey: string;
+  message: string;
+  jsonObjectMode: boolean;
+  priorError?: unknown;
+}): Promise<string> {
   const response = await fetch(`${resolveSiliconFlowBaseUrl().replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${params.apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -64,18 +86,27 @@ export async function runSiliconFlowTextPrompt(params: {
           content: params.message,
         },
       ],
+      ...(params.jsonObjectMode ? { response_format: { type: "json_object" } } : {}),
       temperature: 0,
+      top_p: 0.1,
       stream: false,
     }),
   });
 
   const payload = (await response.json()) as SiliconFlowResponse;
   if (!response.ok) {
-    throw new Error(payload.error?.message ?? `SiliconFlow request failed with status ${response.status}`);
+    const message = payload.error?.message ?? `SiliconFlow request failed with status ${response.status}`;
+    if (params.priorError instanceof Error) {
+      throw new Error(`${params.priorError.message}; fallback request failed: ${message}`);
+    }
+    throw new Error(message);
   }
 
   const content = payload.choices?.[0]?.message?.content?.trim();
   if (!content) {
+    if (params.priorError instanceof Error) {
+      throw new Error(`${params.priorError.message}; fallback response did not include assistant content`);
+    }
     throw new Error("SiliconFlow response did not include assistant content");
   }
 

@@ -265,6 +265,15 @@ async function main() {
   await app.register(createWorkbenchRoutes({ workbenchService }), { prefix: "/api/workbench" });
 
   try {
+    const styleProfilesResponse = await app.inject({
+      method: "GET",
+      url: "/api/workbench/style-profiles",
+    });
+
+    assertOk(styleProfilesResponse.statusCode === 200, "style profiles route status", styleProfilesResponse.body);
+    const styleProfiles = styleProfilesResponse.json();
+    assertOk(Array.isArray(styleProfiles) && styleProfiles.length > 0, "style profiles route returned empty list");
+
     const textImportResponse = await app.inject({
       method: "POST",
       url: "/api/workbench/import",
@@ -313,6 +322,15 @@ async function main() {
       payload: {
         format: "latex",
         doc,
+        style: {
+          styleProfileId: styleProfiles[0].id,
+          bodyFontSizePt: 13,
+          lineSpacing: 1.8,
+          marginTopMm: 22,
+          marginBottomMm: 24,
+          marginLeftMm: 26,
+          marginRightMm: 20,
+        },
       },
     });
 
@@ -328,6 +346,15 @@ async function main() {
       payload: {
         format: "docx",
         doc,
+        style: {
+          styleProfileId: styleProfiles[0].id,
+          bodyFontSizePt: 13,
+          lineSpacing: 1.8,
+          marginTopMm: 22,
+          marginBottomMm: 24,
+          marginLeftMm: 26,
+          marginRightMm: 20,
+        },
       },
     });
 

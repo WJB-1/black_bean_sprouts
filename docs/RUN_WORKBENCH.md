@@ -44,6 +44,48 @@ SILICONFLOW_MODEL=Qwen/Qwen2.5-7B-Instruct
 
 ## 3. 本地启动
 
+推荐直接用一键脚本：
+
+```powershell
+.\start-workbench.ps1
+```
+
+如果你刚刚已经构建过，也可以跳过重复构建：
+
+```powershell
+.\start-workbench.ps1 -SkipBuild
+```
+
+查看状态：
+
+```powershell
+.\status-workbench.ps1
+```
+
+关闭：
+
+```powershell
+.\stop-workbench.ps1
+```
+
+也可以用 `pnpm` 包装命令：
+
+```powershell
+pnpm run workbench:start
+pnpm run workbench:status
+pnpm run workbench:stop
+```
+
+脚本行为：
+
+- 自动读取根目录 `.env`
+- 若存在 `SILICONFLOW_API_KEY`，默认切到 `siliconflow-direct`
+- 默认执行一次 `pnpm build`
+- 后台拉起后端 `3000` 和前端 `5173`
+- 日志写到 `.tmp/workbench-dev/logs`
+
+## 4. 手动启动
+
 后端：
 
 ```powershell
@@ -62,14 +104,14 @@ pnpm --filter @black-bean-sprouts/web dev
 http://localhost:5173/workbench
 ```
 
-## 4. 构建检查
+## 5. 构建检查
 
 ```powershell
 pnpm build
 pnpm typecheck
 ```
 
-## 5. 本地离线冒烟
+## 6. 本地离线冒烟
 
 这个命令不依赖在线模型，验证导入 / 结构化回退 / 导出链路：
 
@@ -77,7 +119,7 @@ pnpm typecheck
 pnpm run smoke:workbench
 ```
 
-## 6. 在线全流程冒烟
+## 7. 在线全流程冒烟
 
 PowerShell 示例：
 
@@ -96,7 +138,7 @@ pnpm run smoke:workbench-live
 - `.tex` 导出成功
 - 导出的 `.docx` 能再次导入
 
-## 7. OpenClaw 现状
+## 8. OpenClaw 现状
 
 - 正式运行目录：`.openclaw-runtime`
 - 正式配置文件：`.openclaw-runtime/openclaw.json`

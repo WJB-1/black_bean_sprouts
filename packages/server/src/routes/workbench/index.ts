@@ -10,6 +10,8 @@ export function createWorkbenchRoutes(deps: WorkbenchRouteDeps): FastifyPluginAs
   const { workbenchService } = deps;
 
   return async (app) => {
+    app.get("/style-profiles", async () => workbenchService.listStyleProfiles());
+
     app.post<{
       Body: { fileName?: string; contentBase64?: string };
     }>(
@@ -56,7 +58,19 @@ export function createWorkbenchRoutes(deps: WorkbenchRouteDeps): FastifyPluginAs
     });
 
     app.post<{
-      Body: { doc?: Doc; format?: "docx" | "latex" };
+      Body: {
+        doc?: Doc;
+        format?: "docx" | "latex";
+        style?: {
+          styleProfileId?: string;
+          bodyFontSizePt?: number;
+          lineSpacing?: number;
+          marginTopMm?: number;
+          marginBottomMm?: number;
+          marginLeftMm?: number;
+          marginRightMm?: number;
+        };
+      };
     }>("/export", async (req, reply) => {
       const doc = req.body?.doc;
       const format = req.body?.format;
@@ -75,7 +89,11 @@ export function createWorkbenchRoutes(deps: WorkbenchRouteDeps): FastifyPluginAs
         });
       }
 
-      const result = await workbenchService.exportDocument({ doc, format });
+      const result = await workbenchService.exportDocument({
+        doc,
+        format,
+        style: req.body?.style,
+      });
       reply.header("Content-Type", result.contentType);
       reply.header("Content-Disposition", buildAttachmentDisposition(result.fileName));
       return reply.send(result.buffer);
