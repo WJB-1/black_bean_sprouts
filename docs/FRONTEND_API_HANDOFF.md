@@ -501,7 +501,112 @@ URL.revokeObjectURL(url);
 }
 ```
 
-## 9. 管理后台接口
+## 9. Billing 接口
+
+这组接口给产品订阅/支付页用。
+
+## 9.1 获取可售计划
+
+- `GET /api/billing/plans`
+
+响应示例：
+
+```json
+[
+  {
+    "id": "starter-monthly",
+    "name": "Starter Monthly",
+    "description": "Structured generation + DOCX/LaTeX export",
+    "amountCents": 990,
+    "currency": "usd",
+    "interval": "month",
+    "accessDays": 30,
+    "features": [
+      "workbench.generate",
+      "workbench.export.docx",
+      "workbench.export.latex"
+    ],
+    "provider": "mock"
+  }
+]
+```
+
+## 9.2 获取当前用户账单摘要
+
+- `GET /api/billing/me`
+
+需要登录。
+
+响应体包含：
+
+- `plans`
+- `subscriptions`
+- `recentOrders`
+
+## 9.3 创建结账会话
+
+- `POST /api/billing/checkout`
+
+需要登录。
+
+请求体：
+
+```json
+{
+  "planId": "starter-monthly",
+  "successUrl": "http://localhost:3000/billing/success?session_id={CHECKOUT_SESSION_ID}",
+  "cancelUrl": "http://localhost:3000/billing/cancel"
+}
+```
+
+响应示例：
+
+```json
+{
+  "orderId": "order-id",
+  "provider": "stripe",
+  "checkoutUrl": "https://checkout.stripe.com/...",
+  "providerSessionId": "cs_test_...",
+  "status": "PENDING"
+}
+```
+
+前端动作：
+
+- 直接跳转到 `checkoutUrl`
+
+## 9.4 支付成功后确认订单
+
+- `POST /api/billing/checkout/confirm`
+
+需要登录。
+
+请求体：
+
+```json
+{
+  "orderId": "order-id",
+  "providerSessionId": "cs_test_..."
+}
+```
+
+响应示例：
+
+```json
+{
+  "orderId": "order-id",
+  "status": "PAID",
+  "subscriptionStatus": "ACTIVE"
+}
+```
+
+说明：
+
+- 当前支持 `mock` 和 `stripe`
+- 本地未配置 Stripe 时，默认走 `mock`
+- 前端可以先接完整流程，不必等真实支付环境
+
+## 10. 管理后台接口
 
 管理接口统一在：
 
@@ -522,7 +627,7 @@ URL.revokeObjectURL(url);
 
 - `packages/server/src/routes/admin/index.ts`
 
-## 10. 错误处理约定
+## 11. 错误处理约定
 
 大多数接口错误格式是：
 
@@ -548,7 +653,7 @@ URL.revokeObjectURL(url);
 - 先尝试解析 JSON
 - 若不是 JSON，再按纯文本错误处理
 
-## 11. 当前前端接入建议
+## 12. 当前前端接入建议
 
 如果你是前端 AI，请按下面顺序工作：
 
@@ -558,7 +663,7 @@ URL.revokeObjectURL(url);
 4. 若做编辑器，再接 `DocumentPatchBatch`
 5. 不要自己发明另一套富文本数据结构
 
-## 12. 后端源码入口
+## 13. 后端源码入口
 
 优先看这些文件：
 
@@ -568,13 +673,15 @@ URL.revokeObjectURL(url);
 - `packages/server/src/routes/document/patches.ts`
 - `packages/server/src/routes/document/render.ts`
 - `packages/server/src/routes/render-job/index.ts`
+- `packages/server/src/routes/billing/index.ts`
 - `packages/server/src/routes/agent/index.ts`
 - `packages/server/src/routes/admin/index.ts`
+- `packages/server/src/services/billing-application.ts`
 - `packages/doc-schema/src/doc/types.ts`
 - `packages/doc-schema/src/patch/types.ts`
 - `packages/doc-schema/src/patch/batch.ts`
 
-## 13. 一句话总结
+## 14. 一句话总结
 
 当前前端最应该接的是：
 

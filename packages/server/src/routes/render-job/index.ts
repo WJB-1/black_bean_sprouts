@@ -13,6 +13,11 @@ export function createRenderJobRoutes(deps: RenderJobRouteDeps): FastifyPluginAs
     app.get<{
       Params: { id: string };
     }>("/:id", async (req, reply) => {
+      try {
+        await req.jwtVerify();
+      } catch {
+        return reply.status(401).send({ error: "Authentication required" });
+      }
       const userId = (req.user as { sub: string } | undefined)?.sub;
 
       if (!userId) {
@@ -34,6 +39,11 @@ export function createRenderJobRoutes(deps: RenderJobRouteDeps): FastifyPluginAs
     app.get<{
       Params: { id: string };
     }>("/:id/download", async (req, reply) => {
+      try {
+        await req.jwtVerify();
+      } catch {
+        return reply.status(401).send({ error: "Authentication required" });
+      }
       const userId = (req.user as { sub: string } | undefined)?.sub;
 
       if (!userId) {

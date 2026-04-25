@@ -1,4 +1,5 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
+import type { PrismaClient } from "@prisma/client";
 
 export type JwtPayload = {
   sub: string;
@@ -35,20 +36,47 @@ export async function authPlugin(app: FastifyInstance) {
   });
 }
 
-// Login route for testing/development
-export async function registerAuthRoutes(app: FastifyInstance) {
-  app.post("/api/auth/login", async (req, reply) => {
-    const { email } = req.body as { email: string };
-    if (!email) return reply.status(400).send({ error: "email is required" });
+export type AuthRouteDeps = {
+  readonly prisma: PrismaClient;
+};
 
-    // In production: verify password, load user from DB
-    // For now: generate token with role based on email
-    const role = email.includes("admin") ? "ADMIN" : "USER";
-    const token = app.jwt.sign({
-      sub: "user_" + Date.now(),
-      email,
-      role,
+export function createAuthRoutes(deps: AuthRouteDeps): FastifyPluginAsync {
+  return async (app) => {
+    app.post("/api/auth/login", async (req, reply) => {
+      const { email, name } = req.body as { email?: string; name?: string };
+      const normalizedEmail = email?.trim().toLowerCase();
+      if (!normalizedEmail) {
+        return reply.status(400).send({ error: "email is required" });
+      }
+
+      const role: JwtPayload["role"] = normalizedEmail.includes("admin") ? "ADMIN" : "USER";
+      const user = await deps.prisma.user.upsert({
+        where: { email: normalizedEmail },
+        update: {
+          ...(name?.trim() ? { name: name.trim() } : {}),
+          role,
+        },
+        create: {
+          email: normalizedEmail,
+          ...(name?.trim() ? { name: name.trim() } : {}),
+          role,
+        },
+      });
+
+      const token = app.jwt.sign({
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+      });
+      return {
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+        },
+      };
     });
-    return { token, user: { email, role } };
-  });
+  };
 }

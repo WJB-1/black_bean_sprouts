@@ -19,6 +19,25 @@ enum RenderJobStatus {
   FAILED
 }
 
+enum BillingProvider {
+  MOCK
+  STRIPE
+}
+
+enum BillingOrderStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELED
+  EXPIRED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  EXPIRED
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -29,6 +48,8 @@ model User {
 
   documents Document[]
   renderJobs RenderJob[]
+  billingOrders BillingOrder[]
+  subscriptions UserSubscription[]
 }
 
 model Document {
@@ -114,4 +135,50 @@ model RenderJob {
   @@index([documentId])
   @@index([userId])
   @@index([status])
+}
+
+model BillingOrder {
+  id                     String             @id @default(cuid())
+  userId                 String
+  planId                 String
+  planName               String
+  amountCents            Int
+  currency               String
+  provider               BillingProvider
+  status                 BillingOrderStatus @default(PENDING)
+  providerSessionId      String?            @unique
+  providerSubscriptionId String?
+  checkoutUrl            String?
+  metadata               Json               @default("{}")
+  paidAt                 DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([planId])
+}
+
+model UserSubscription {
+  id                     String             @id @default(cuid())
+  userId                 String
+  planId                 String
+  planName               String
+  provider               BillingProvider
+  status                 SubscriptionStatus @default(ACTIVE)
+  sourceOrderId          String?
+  providerSubscriptionId String?
+  startedAt              DateTime           @default(now())
+  currentPeriodEnd       DateTime?
+  canceledAt             DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([planId])
 }

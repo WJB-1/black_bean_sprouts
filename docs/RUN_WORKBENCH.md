@@ -14,6 +14,13 @@ pnpm install
 pnpm db:generate
 ```
 
+如果你要测试登录、账单、文档持久化，先把本地基础设施拉起来：
+
+```powershell
+docker compose up -d postgres redis minio
+pnpm db:push
+```
+
 推荐环境：
 
 - Node `24.14.0`（`20+` 也可）
@@ -40,7 +47,42 @@ SILICONFLOW_MODEL=Qwen/Qwen2.5-7B-Instruct
 - 工作台在检测到 `SILICONFLOW_API_KEY` 时会优先走直连 SiliconFlow
 - `OPENCLAW_PROJECT_PATH` 默认指向 `../reference_projects/openclaw`
 - `OPENCLAW_CONFIG_PATH` 默认是 `.openclaw-runtime/openclaw.json`
+- 登录、支付、文档保存依赖 PostgreSQL；如果 `localhost:5432` 没启动，这些接口会失败
 - Redis / MinIO 当前不是 Workbench 主流程的阻塞项
+
+如果要改成 OpenAI：
+
+### OpenAI Platform API（通过 OpenClaw）
+
+```dotenv
+WORKBENCH_PROMPT_PROVIDER=openclaw
+OPENAI_API_KEY=你的 OpenAI API Key
+OPENCLAW_PROVIDER=openai
+OPENCLAW_MODEL=openai/gpt-5.4
+```
+
+### ChatGPT / Codex OAuth（通过 OpenClaw）
+
+先在 OpenClaw 里做一次登录：
+
+```powershell
+cd ..\reference_projects\openclaw
+pnpm openclaw models auth login --provider openai-codex
+```
+
+然后在 `.env` 里设置：
+
+```dotenv
+WORKBENCH_PROMPT_PROVIDER=openclaw
+OPENCLAW_PROVIDER=openai-codex
+OPENCLAW_MODEL=openai-codex/gpt-5.4
+```
+
+注意：
+
+- `openai/*` 是 OpenAI Platform API 路径
+- `openai-codex/*` 是 ChatGPT / Codex OAuth 路径
+- 两条路在 OpenClaw 里是分开的，不要混用
 
 ## 3. 本地启动
 

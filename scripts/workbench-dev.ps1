@@ -175,6 +175,20 @@ function Initialize-WorkbenchEnvironment {
   }
 }
 
+function Show-InfrastructureWarnings {
+  if (-not (Test-TcpPortOpen -Port 5432)) {
+    Write-WarnLine "PostgreSQL is not reachable on localhost:5432. Auth, billing, and saved documents may fail until you start the database and run pnpm db:push."
+  }
+
+  if (-not (Test-TcpPortOpen -Port 6379)) {
+    Write-WarnLine "Redis is not reachable on localhost:6379. Async render queue features will stay degraded."
+  }
+
+  if (-not (Test-TcpPortOpen -Port 9000)) {
+    Write-WarnLine "MinIO is not reachable on localhost:9000. Async render file storage will stay degraded."
+  }
+}
+
 function Assert-RequiredTools {
   foreach ($tool in @("pnpm", "node")) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
@@ -383,6 +397,7 @@ function Show-WorkbenchStatus {
 function Start-Workbench {
   Assert-RequiredTools
   Initialize-WorkbenchEnvironment
+  Show-InfrastructureWarnings
 
   if (Test-ManagedServiceRunning -Name "web") {
     Write-Info "Stopping legacy frontend service"

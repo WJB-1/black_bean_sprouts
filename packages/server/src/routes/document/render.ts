@@ -13,6 +13,11 @@ export function createRenderRoute(deps: RenderRouteDeps): FastifyPluginAsync {
       Params: { id: string };
       Body: { format?: "docx" | "pdf" };
     }>("/:id/render", async (req, reply) => {
+      try {
+        await req.jwtVerify();
+      } catch {
+        return reply.status(401).send({ error: "Authentication required" });
+      }
       const userId = (req.user as { sub: string } | undefined)?.sub;
 
       if (!userId) {

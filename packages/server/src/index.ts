@@ -9,12 +9,14 @@ import { agentRoutes } from "./routes/agent/index.js";
 import { createAdminRoutes } from "./routes/admin/index.js";
 import { createRenderJobRoutes } from "./routes/render-job/index.js";
 import { createWorkbenchRoutes } from "./routes/workbench/index.js";
+import { createBillingRoutes } from "./routes/billing/index.js";
 import { createRenderQueue } from "./jobs/render-queue.js";
 import { createRenderWorker } from "./jobs/render-worker.js";
 import { createRenderApplicationService } from "./services/render-application.js";
+import { createBillingApplicationService } from "./services/billing-application.js";
 import { createWorkbenchApplicationService } from "./services/workbench-application.js";
 import { createStorageService } from "./storage/storage-service.js";
-import { authPlugin, registerAuthRoutes } from "./plugins/auth.js";
+import { authPlugin, createAuthRoutes } from "./plugins/auth.js";
 import type { RenderApplicationService } from "./services/render-application.js";
 
 const app = Fastify({ logger: true });
@@ -55,18 +57,20 @@ async function start() {
     );
   }
   const workbenchService = createWorkbenchApplicationService();
+  const billingService = createBillingApplicationService({ prisma });
 
   // --- Fastify plugins ---
   await app.register(cors, { origin: true });
   await app.register(jwt, { secret: process.env.JWT_SECRET || "change-me" });
   await app.register(authPlugin);
-  await app.register(registerAuthRoutes);
+  await app.register(createAuthRoutes({ prisma }));
 
   // --- Route registration ---
   await app.register(createDocumentRoutes({ renderService, prisma }), { prefix: "/api/documents" });
   await app.register(agentRoutes, { prefix: "/api/agent" });
   await app.register(createAdminRoutes({ prisma }), { prefix: "/api/admin" });
   await app.register(createRenderJobRoutes({ renderService }), { prefix: "/api/render-jobs" });
+  await app.register(createBillingRoutes({ billingService }), { prefix: "/api/billing" });
   await app.register(createWorkbenchRoutes({ workbenchService }), { prefix: "/api/workbench" });
   await registerStaticWebRoutes(app);
 

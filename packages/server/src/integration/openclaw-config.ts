@@ -12,6 +12,7 @@ const DEFAULT_TIMEOUT_SECONDS = 20;
 const DEFAULT_IDLE_TIMEOUT_SECONDS = 12;
 const DEFAULT_CONTEXT_WINDOW = 131_072;
 const DEFAULT_MAX_TOKENS = 8_192;
+const BUILT_IN_OPENCLAW_PROVIDER_IDS = new Set(["openai", "openai-codex"]);
 
 function normalizeOptionalString(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -135,12 +136,15 @@ function buildCanonicalProviderConfig(params: {
 
 function buildCanonicalConfig(params: { workspaceDir: string }): OpenClawConfig {
   const selection = getBootstrapSelection();
-  const providerConfig = buildCanonicalProviderConfig({
-    providerId: selection.providerId,
-    modelId: selection.modelId,
-    baseUrl: getBootstrapBaseUrl(selection.providerId),
-    apiKeyEnvVar: getBootstrapApiKeyEnvVar(selection.providerId),
-  });
+  const shouldInjectCustomProviderConfig = !BUILT_IN_OPENCLAW_PROVIDER_IDS.has(selection.providerId);
+  const providerConfig = shouldInjectCustomProviderConfig
+    ? buildCanonicalProviderConfig({
+        providerId: selection.providerId,
+        modelId: selection.modelId,
+        baseUrl: getBootstrapBaseUrl(selection.providerId),
+        apiKeyEnvVar: getBootstrapApiKeyEnvVar(selection.providerId),
+      })
+    : undefined;
 
   return {
     plugins: {},
@@ -164,12 +168,16 @@ function buildCanonicalConfig(params: { workspaceDir: string }): OpenClawConfig 
         auto: "off",
       },
     },
-    models: {
-      mode: "replace",
-      providers: {
-        [selection.providerId]: providerConfig,
-      },
-    },
+    ...(providerConfig
+      ? {
+          models: {
+            mode: "replace",
+            providers: {
+              [selection.providerId]: providerConfig,
+            },
+          },
+        }
+      : {}),
   };
 }
 
@@ -239,6 +247,23 @@ function mergeCanonicalConfig(
       : {}),
   };
 
+  const nextModels =
+    Object.keys(canonicalModelsRoot).length > 0 || Object.keys(existingModelsRoot).length > 0
+      ? {
+          ...canonicalModelsRoot,
+          ...existingModelsRoot,
+          ...(canonicalModelsRoot.mode !== undefined || existingModelsRoot.mode !== undefined
+            ? {
+                mode:
+                  typeof existingModelsRoot.mode === "string"
+                    ? existingModelsRoot.mode
+                    : canonicalModelsRoot.mode,
+              }
+            : {}),
+          providers: nextProviders,
+        }
+      : undefined;
+
   return {
     ...existing,
     plugins: existingPlugins ?? canonicalPlugins,
@@ -287,13 +312,7 @@ function mergeCanonicalConfig(
         auto: typeof existingTts.auto === "string" ? existingTts.auto : canonicalTts.auto,
       },
     },
-    models: {
-      ...canonicalModelsRoot,
-      ...existingModelsRoot,
-      mode:
-        typeof existingModelsRoot.mode === "string" ? existingModelsRoot.mode : canonicalModelsRoot.mode,
-      providers: nextProviders,
-    },
+    ...(nextModels ? { models: nextModels } : {}),
   };
 }
 
