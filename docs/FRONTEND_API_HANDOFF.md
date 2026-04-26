@@ -505,6 +505,10 @@ URL.revokeObjectURL(url);
 
 这组接口给产品订阅/支付页用。
 
+如果你只负责支付页，请优先再看：
+
+- `docs/FRONTEND_BILLING_HANDOFF.md`
+
 ## 9.1 获取可售计划
 
 - `GET /api/billing/plans`
