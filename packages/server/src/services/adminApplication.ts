@@ -1,4 +1,9 @@
 import { PrismaClient } from "@prisma/client";
+import {
+  getAdminRuntimeSnapshot,
+  updateAdminRuntimeSettings,
+  type AdminRuntimeSnapshot,
+} from "./admin-runtime-config.js";
 
 export type StyleProfileInput = {
   name: string;
@@ -19,6 +24,9 @@ export type SkillInput = {
 };
 
 export type AdminApplicationService = {
+  getRuntimeSettings(): Promise<AdminRuntimeSnapshot>;
+  updateRuntimeSettings(input: Record<string, unknown>): Promise<AdminRuntimeSnapshot>;
+
   // StyleProfile
   listStyleProfiles(): Promise<readonly unknown[]>;
   createStyleProfile(input: StyleProfileInput): Promise<unknown>;
@@ -51,6 +59,13 @@ function computeSimpleHash(dsl: Record<string, unknown>): string {
 
 export function createAdminService(prisma: PrismaClient): AdminApplicationService {
   return {
+    async getRuntimeSettings() {
+      return getAdminRuntimeSnapshot();
+    },
+    async updateRuntimeSettings(input) {
+      return updateAdminRuntimeSettings(input);
+    },
+
     async listStyleProfiles() {
       return prisma.styleProfile.findMany();
     },

@@ -20,6 +20,13 @@ export function createAdminRoutes(deps: AdminRouteDeps): FastifyPluginAsync {
     });
 
     // ---- StyleProfile CRUD ----
+    app.get("/runtime-settings", async () => adminService.getRuntimeSettings());
+    app.put("/runtime-settings", async (req) => {
+      const { values } = req.body as { values?: Record<string, unknown> };
+      return adminService.updateRuntimeSettings(values ?? {});
+    });
+
+    // ---- StyleProfile CRUD ----
     app.get("/style-profiles", async () => adminService.listStyleProfiles());
     app.post("/style-profiles", async (req) => {
       const { name, dsl } = req.body as { name: string; dsl: Record<string, unknown> };

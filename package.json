@@ -25,6 +25,7 @@
     "smoke:render-style": "tsx scripts/smoke/render-style.ts",
     "smoke:queue-storage": "tsx scripts/smoke/queue-storage.ts",
     "smoke:admin-auth": "tsx scripts/smoke/admin-auth.ts",
+    "smoke:admin-runtime-write": "node scripts/smoke/admin-runtime-write.mjs",
     "smoke:web-patch-contract": "tsx scripts/smoke/web-patch-contract.ts",
     "workbench:start": "powershell -ExecutionPolicy Bypass -File .\\start-workbench.ps1",
     "workbench:stop": "powershell -ExecutionPolicy Bypass -File .\\stop-workbench.ps1",

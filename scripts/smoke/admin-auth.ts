@@ -12,12 +12,22 @@ async function main() {
   if (userRole !== "USER") { console.error("FAIL: user role detection"); process.exit(1); }
   console.log("  - Regular user detected: OK");
 
-  // Test 2: Admin service CRUD
-  const { createAdminService } = await import("@black-bean-sprouts/server/dist/services/adminApplication.js").catch(() => {
-    // Fallback: import from source if dist not available
-    return import("../../packages/server/src/services/adminApplication.js");
+  const { getAdminRuntimeSnapshot } = await import("@black-bean-sprouts/server/dist/services/admin-runtime-config.js").catch(() => {
+    return import("../../packages/server/src/services/admin-runtime-config.js");
   });
 
-  console.log("PASS: admin auth logic verified");
+  const snapshot = await getAdminRuntimeSnapshot();
+  if (!snapshot.sections.length) {
+    console.error("FAIL: runtime settings snapshot is empty");
+    process.exit(1);
+  }
+  if (!snapshot.overview.billingProviders.length) {
+    console.error("FAIL: billing providers summary is empty");
+    process.exit(1);
+  }
+  console.log(`  - Runtime settings sections: ${snapshot.sections.length}`);
+  console.log(`  - Billing providers summary: ${snapshot.overview.billingProviders.join(", ")}`);
+
+  console.log("PASS: admin auth and runtime console snapshot verified");
 }
 main().catch(e => { console.error("FAIL:", e); process.exit(1); });
