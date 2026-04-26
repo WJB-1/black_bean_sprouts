@@ -4,6 +4,9 @@
   "private": true,
   "description": "医学/学术文档 Agent 编辑平台",
   "scripts": {
+    "postinstall": "node scripts/ensure-prisma-client.mjs",
+    "pretypecheck": "node scripts/ensure-prisma-client.mjs",
+    "prebuild": "node scripts/ensure-prisma-client.mjs",
     "build": "pnpm -r --stream run build",
     "typecheck": "pnpm -r --stream run typecheck",
     "test": "pnpm -r --stream run test",
