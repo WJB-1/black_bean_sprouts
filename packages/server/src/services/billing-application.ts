@@ -1,34 +1,53 @@
-import { randomUUID, createHash } from "node:crypto";
 import {
   BillingOrderStatus,
-  BillingProvider,
   SubscriptionStatus,
+  type Prisma,
   type PrismaClient,
 } from "@prisma/client";
+import {
+  parseAndVerifyAlipayNotification,
+  prepareAlipayCheckout,
+  queryAlipayTrade,
+} from "./billing-alipay.js";
+import {
+  asRecord,
+  BillingCheckoutKind,
+  BillingDeveloperMode,
+  BillingPlan,
+  BillingPublicProvider,
+  buildDeveloperSuccessUrl,
+  fromStoredBillingProvider,
+  getBillingPlans,
+  normalizeOptionalString,
+  requireBillingPlan,
+  resolveAppBaseUrl,
+  resolveConfiguredProviders,
+  resolveDefaultBillingProvider,
+  resolveDeveloperMode,
+  resolveRequestedProvider,
+  toStoredBillingProvider,
+} from "./billing-shared.js";
+import {
+  parseAndVerifyWeChatPayNotification,
+  prepareWeChatPayCheckout,
+  queryWeChatPayOrder,
+} from "./billing-wechatpay.js";
 
-export type BillingPlanInterval = "month" | "year";
-
-export type BillingPlan = {
-  readonly id: string;
-  readonly name: string;
-  readonly description?: string;
-  readonly amountCents: number;
-  readonly currency: string;
-  readonly interval?: BillingPlanInterval;
-  readonly accessDays: number;
-  readonly features: readonly string[];
-};
+export type { BillingPublicProvider } from "./billing-shared.js";
 
 export type BillingPlanSummary = BillingPlan & {
-  readonly provider: "mock" | "stripe";
+  readonly provider: BillingPublicProvider;
+  readonly availableProviders: readonly BillingPublicProvider[];
 };
 
 export type BillingCheckoutResult = {
   readonly orderId: string;
-  readonly provider: "mock" | "stripe";
+  readonly provider: BillingPublicProvider;
   readonly checkoutUrl: string;
   readonly providerSessionId?: string;
   readonly status: "PENDING" | "PAID";
+  readonly checkoutKind: BillingCheckoutKind;
+  readonly checkoutPayload?: Record<string, unknown>;
 };
 
 export type BillingUserSummary = {
@@ -54,6 +73,12 @@ export type BillingUserSummary = {
   }>;
 };
 
+export type BillingNotificationResult = {
+  readonly statusCode: number;
+  readonly contentType: string;
+  readonly body: string;
+};
+
 export type BillingApplicationService = {
   listPlans(): Promise<readonly BillingPlanSummary[]>;
   getUserSummary(userId: string): Promise<BillingUserSummary>;
@@ -61,6 +86,7 @@ export type BillingApplicationService = {
     userId: string;
     email: string;
     planId: string;
+    provider?: BillingPublicProvider;
     successUrl?: string;
     cancelUrl?: string;
   }): Promise<BillingCheckoutResult>;
@@ -73,52 +99,48 @@ export type BillingApplicationService = {
     readonly status: string;
     readonly subscriptionStatus?: string;
   }>;
+  handleNotification(params: {
+    provider: Extract<BillingPublicProvider, "alipay" | "wechatpay">;
+    headers: Readonly<Record<string, string | string[] | undefined>>;
+    rawBody: string;
+  }): Promise<BillingNotificationResult>;
 };
 
 export type BillingApplicationDeps = {
   readonly prisma: PrismaClient;
+  readonly fetchImpl?: typeof fetch;
+  readonly now?: () => Date;
 };
 
-type StripeCheckoutSession = {
-  id: string;
-  url?: string;
-  status?: string;
-  payment_status?: string;
-  subscription?: string;
+type StoredBillingOrder = NonNullable<
+  Awaited<ReturnType<PrismaClient["billingOrder"]["findUnique"]>>
+>;
+
+type ProviderQueryResult = {
+  readonly providerSessionId?: string;
+  readonly providerSubscriptionId?: string;
+  readonly paid: boolean;
+  readonly metadata: Record<string, unknown>;
 };
 
-const DEFAULT_BILLING_PLANS: readonly BillingPlan[] = Object.freeze([
-  {
-    id: "starter-monthly",
-    name: "Starter Monthly",
-    description: "Structured generation + DOCX/LaTeX export",
-    amountCents: 990,
-    currency: "usd",
-    interval: "month",
-    accessDays: 30,
-    features: ["workbench.generate", "workbench.export.docx", "workbench.export.latex"],
-  },
-  {
-    id: "starter-yearly",
-    name: "Starter Yearly",
-    description: "Structured generation + DOCX/LaTeX export",
-    amountCents: 9990,
-    currency: "usd",
-    interval: "year",
-    accessDays: 365,
-    features: ["workbench.generate", "workbench.export.docx", "workbench.export.latex"],
-  },
-]);
+function toInputJson(value: Record<string, unknown>): Prisma.InputJsonValue {
+  return value as Prisma.InputJsonValue;
+}
 
 export function createBillingApplicationService(
   deps: BillingApplicationDeps,
 ): BillingApplicationService {
   const { prisma } = deps;
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const now = deps.now ?? (() => new Date());
+
   const listPlanSummaries = async (): Promise<readonly BillingPlanSummary[]> => {
-    const provider = resolveBillingProvider();
+    const availableProviders = resolveConfiguredProviders();
+    const defaultProvider = resolveDefaultBillingProvider(availableProviders);
     return getBillingPlans().map((plan) => ({
       ...plan,
-      provider,
+      provider: defaultProvider,
+      availableProviders,
     }));
   };
 
@@ -166,32 +188,18 @@ export function createBillingApplicationService(
 
     async createCheckout(params) {
       const plan = requireBillingPlan(params.planId);
-      const provider = resolveBillingProvider();
+      const availableProviders = resolveConfiguredProviders();
+      const provider = resolveRequestedProvider(params.provider, availableProviders);
 
-      if (provider === "mock") {
-        const order = await prisma.billingOrder.create({
-          data: {
-            userId: params.userId,
-            planId: plan.id,
-            planName: plan.name,
-            amountCents: plan.amountCents,
-            currency: plan.currency,
-            provider: BillingProvider.MOCK,
-            status: BillingOrderStatus.PAID,
-            checkoutUrl: buildMockCheckoutUrl(params.planId),
-            paidAt: new Date(),
-            metadata: {
-              mode: "mock",
-            },
-          },
+      if (provider === "developer") {
+        return createDeveloperCheckout({
+          prisma,
+          now,
+          plan,
+          userId: params.userId,
+          successUrl: params.successUrl,
+          cancelUrl: params.cancelUrl,
         });
-        await activateSubscriptionForOrder(prisma, order.id, plan);
-        return {
-          orderId: order.id,
-          provider: "mock",
-          checkoutUrl: order.checkoutUrl ?? buildMockCheckoutUrl(params.planId),
-          status: "PAID",
-        };
       }
 
       const order = await prisma.billingOrder.create({
@@ -201,54 +209,90 @@ export function createBillingApplicationService(
           planName: plan.name,
           amountCents: plan.amountCents,
           currency: plan.currency,
-          provider: BillingProvider.STRIPE,
+          provider: toStoredBillingProvider(provider),
           status: BillingOrderStatus.PENDING,
-          metadata: {
+          metadata: toInputJson({
+            mode: provider,
             requestedSuccessUrl: params.successUrl,
             requestedCancelUrl: params.cancelUrl,
-          },
+          }),
         },
       });
 
       try {
-        const stripeSession = await createStripeCheckoutSession({
-          orderId: order.id,
-          email: params.email,
-          plan,
-          successUrl: params.successUrl,
-          cancelUrl: params.cancelUrl,
-        });
+        if (provider === "stripe") {
+          return createStripeCheckout({
+            prisma,
+            fetchImpl,
+            plan,
+            orderId: order.id,
+            email: params.email,
+            successUrl: params.successUrl,
+            cancelUrl: params.cancelUrl,
+          });
+        }
 
-        const updatedOrder = await prisma.billingOrder.update({
+        if (provider === "alipay") {
+          const prepared = prepareAlipayCheckout({
+            plan,
+            orderId: order.id,
+            successUrl: params.successUrl,
+          });
+          await prisma.billingOrder.update({
+            where: { id: order.id },
+            data: {
+              providerSessionId: prepared.providerSessionId,
+              checkoutUrl: prepared.checkoutUrl,
+              metadata: toInputJson({
+                mode: "alipay",
+                productCode: "FAST_INSTANT_TRADE_PAY",
+              }),
+            },
+          });
+          return {
+            orderId: order.id,
+            provider,
+            checkoutUrl: prepared.checkoutUrl,
+            providerSessionId: prepared.providerSessionId,
+            status: "PENDING",
+            checkoutKind: "redirect",
+          };
+        }
+
+        const prepared = await prepareWeChatPayCheckout({
+          fetchImpl,
+          plan,
+          orderId: order.id,
+        });
+        await prisma.billingOrder.update({
           where: { id: order.id },
           data: {
-            providerSessionId: stripeSession.id,
-            checkoutUrl: stripeSession.url,
-            metadata: {
-              sessionId: stripeSession.id,
-              mode: "stripe",
-            },
+            providerSessionId: prepared.providerSessionId,
+            checkoutUrl: prepared.checkoutUrl,
+            metadata: toInputJson({
+              mode: "wechatpay",
+              scene: "native",
+            }),
           },
         });
-
         return {
-          orderId: updatedOrder.id,
-          provider: "stripe",
-          checkoutUrl:
-            updatedOrder.checkoutUrl ??
-            `${resolveAppBaseUrl()}/billing/error?orderId=${encodeURIComponent(updatedOrder.id)}`,
-          providerSessionId: updatedOrder.providerSessionId ?? undefined,
+          orderId: order.id,
+          provider,
+          checkoutUrl: prepared.checkoutUrl,
+          providerSessionId: prepared.providerSessionId,
           status: "PENDING",
+          checkoutKind: "qr",
+          checkoutPayload: prepared.checkoutPayload,
         };
       } catch (error) {
         await prisma.billingOrder.update({
           where: { id: order.id },
           data: {
             status: BillingOrderStatus.FAILED,
-            metadata: {
-              mode: "stripe",
+            metadata: toInputJson({
+              mode: provider,
               error: error instanceof Error ? error.message : String(error),
-            },
+            }),
           },
         });
         throw error;
@@ -277,16 +321,21 @@ export function createBillingApplicationService(
         };
       }
 
-      if (order.provider === BillingProvider.MOCK) {
-        const plan = requireBillingPlan(order.planId);
-        await prisma.billingOrder.update({
-          where: { id: order.id },
-          data: {
-            status: BillingOrderStatus.PAID,
-            paidAt: new Date(),
+      const plan = requireBillingPlan(order.planId);
+      const provider = fromStoredBillingProvider(order.provider);
+
+      if (provider === "developer") {
+        const subscription = await markOrderPaidAndActivateSubscription({
+          prisma,
+          now,
+          order,
+          plan,
+          metadata: {
+            mode: "developer",
+            confirmedAt: now().toISOString(),
+            developerMode: resolveDeveloperMode(),
           },
         });
-        const subscription = await activateSubscriptionForOrder(prisma, order.id, plan);
         return {
           orderId: order.id,
           status: BillingOrderStatus.PAID,
@@ -294,38 +343,50 @@ export function createBillingApplicationService(
         };
       }
 
-      const providerSessionId = params.providerSessionId ?? order.providerSessionId;
-      if (!providerSessionId) {
-        throw new Error("providerSessionId is required to confirm a Stripe checkout.");
-      }
+      const queryResult =
+        provider === "stripe"
+          ? await queryStripeCheckout({
+              fetchImpl,
+              order,
+              providerSessionId: params.providerSessionId ?? order.providerSessionId ?? undefined,
+            })
+          : provider === "alipay"
+            ? await queryAlipayTrade({
+                fetchImpl,
+                orderId: order.id,
+              })
+            : await queryWeChatPayOrder({
+                fetchImpl,
+                orderId: order.id,
+              });
 
-      const session = await retrieveStripeCheckoutSession(providerSessionId);
-      if (!isStripeSessionPaid(session)) {
+      if (!queryResult.paid) {
+        await prisma.billingOrder.update({
+          where: { id: order.id },
+          data: {
+            providerSessionId: queryResult.providerSessionId ?? order.providerSessionId ?? undefined,
+            providerSubscriptionId:
+              queryResult.providerSubscriptionId ?? order.providerSubscriptionId ?? undefined,
+            metadata: toInputJson({
+              ...(asRecord(order.metadata) ?? {}),
+              ...queryResult.metadata,
+            }),
+          },
+        });
         return {
           orderId: order.id,
           status: order.status,
         };
       }
 
-      const plan = requireBillingPlan(order.planId);
-      await prisma.billingOrder.update({
-        where: { id: order.id },
-        data: {
-          status: BillingOrderStatus.PAID,
-          paidAt: new Date(),
-          providerSessionId: session.id,
-          providerSubscriptionId: session.subscription ?? undefined,
-          metadata: {
-            mode: "stripe",
-            confirmedAt: new Date().toISOString(),
-            stripeStatus: session.status,
-            stripePaymentStatus: session.payment_status,
-          },
-        },
-      });
-
-      const subscription = await activateSubscriptionForOrder(prisma, order.id, plan, {
-        providerSubscriptionId: session.subscription ?? undefined,
+      const subscription = await markOrderPaidAndActivateSubscription({
+        prisma,
+        now,
+        order,
+        plan,
+        providerSessionId: queryResult.providerSessionId,
+        providerSubscriptionId: queryResult.providerSubscriptionId,
+        metadata: queryResult.metadata,
       });
       return {
         orderId: order.id,
@@ -333,141 +394,189 @@ export function createBillingApplicationService(
         subscriptionStatus: subscription.status,
       };
     },
+
+    async handleNotification(params) {
+      try {
+        const notification =
+          params.provider === "alipay"
+            ? parseAndVerifyAlipayNotification(params.rawBody)
+            : parseAndVerifyWeChatPayNotification({
+                headers: params.headers,
+                rawBody: params.rawBody,
+              });
+        const order = await prisma.billingOrder.findUnique({
+          where: { id: notification.orderId },
+        });
+        if (!order) {
+          return providerNotificationResponse(params.provider, 404, false, "order not found");
+        }
+
+        if (notification.paid) {
+          if (order.status !== BillingOrderStatus.PAID) {
+            const plan = requireBillingPlan(order.planId);
+            await markOrderPaidAndActivateSubscription({
+              prisma,
+              now,
+              order,
+              plan,
+              providerSessionId: notification.providerSessionId,
+              metadata: notification.metadata,
+            });
+          } else {
+            await prisma.billingOrder.update({
+              where: { id: order.id },
+              data: {
+                providerSessionId:
+                  notification.providerSessionId ?? order.providerSessionId ?? undefined,
+                metadata: toInputJson({
+                  ...(asRecord(order.metadata) ?? {}),
+                  ...notification.metadata,
+                }),
+              },
+            });
+          }
+        } else {
+          await prisma.billingOrder.update({
+            where: { id: order.id },
+            data: {
+              metadata: toInputJson({
+                ...(asRecord(order.metadata) ?? {}),
+                ...notification.metadata,
+              }),
+            },
+          });
+        }
+
+        return providerNotificationResponse(params.provider, 200, true);
+      } catch (error) {
+        return providerNotificationResponse(
+          params.provider,
+          401,
+          false,
+          error instanceof Error ? error.message : "notification verification failed",
+        );
+      }
+    },
   };
 }
 
-function normalizeOptionalString(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
+async function createDeveloperCheckout(params: {
+  prisma: PrismaClient;
+  now: () => Date;
+  plan: BillingPlan;
+  userId: string;
+  successUrl?: string;
+  cancelUrl?: string;
+}): Promise<BillingCheckoutResult> {
+  const developerMode = resolveDeveloperMode();
+  const providerSessionId = `dev_${params.now().getTime()}`;
+  const checkoutUrl =
+    developerMode === "instant"
+      ? buildDeveloperSuccessUrl(params.plan.id)
+      : `${resolveAppBaseUrl()}/billing/dev-checkout?orderId=${encodeURIComponent(providerSessionId)}&planId=${encodeURIComponent(params.plan.id)}`;
 
-function resolveBillingProvider(): "mock" | "stripe" {
-  const configured = normalizeOptionalString(process.env.BILLING_PROVIDER)?.toLowerCase();
-  if (configured === "stripe" && normalizeOptionalString(process.env.STRIPE_SECRET_KEY)) {
-    return "stripe";
-  }
-  return "mock";
-}
+  const order = await params.prisma.billingOrder.create({
+    data: {
+      userId: params.userId,
+      planId: params.plan.id,
+      planName: params.plan.name,
+      amountCents: params.plan.amountCents,
+      currency: params.plan.currency,
+      provider: toStoredBillingProvider("developer"),
+      status:
+        developerMode === "instant" ? BillingOrderStatus.PAID : BillingOrderStatus.PENDING,
+      providerSessionId,
+      checkoutUrl,
+      paidAt: developerMode === "instant" ? params.now() : undefined,
+      metadata: toInputJson({
+        mode: "developer",
+        developerMode,
+        requestedSuccessUrl: params.successUrl,
+        requestedCancelUrl: params.cancelUrl,
+      }),
+    },
+  });
 
-function resolveAppBaseUrl(): string {
-  return normalizeOptionalString(process.env.APP_BASE_URL) ?? "http://localhost:3000";
-}
-
-function getBillingPlans(): readonly BillingPlan[] {
-  const raw = normalizeOptionalString(process.env.BILLING_PLANS_JSON);
-  if (!raw) {
-    return DEFAULT_BILLING_PLANS;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      return DEFAULT_BILLING_PLANS;
-    }
-    const plans = parsed
-      .map((item) => normalizeBillingPlan(item))
-      .filter((item): item is BillingPlan => Boolean(item));
-    return plans.length > 0 ? plans : DEFAULT_BILLING_PLANS;
-  } catch {
-    return DEFAULT_BILLING_PLANS;
-  }
-}
-
-function normalizeBillingPlan(value: unknown): BillingPlan | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-
-  const record = value as Record<string, unknown>;
-  const id = typeof record.id === "string" ? record.id.trim() : "";
-  const name = typeof record.name === "string" ? record.name.trim() : "";
-  const amountCents = typeof record.amountCents === "number" ? record.amountCents : Number(record.amountCents);
-  const currency = typeof record.currency === "string" ? record.currency.trim().toLowerCase() : "";
-  const interval =
-    record.interval === "month" || record.interval === "year"
-      ? record.interval
-      : undefined;
-  const accessDays = typeof record.accessDays === "number" ? record.accessDays : Number(record.accessDays);
-  const features = Array.isArray(record.features)
-    ? record.features.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    : [];
-
-  if (!id || !name || !Number.isFinite(amountCents) || amountCents <= 0 || !currency || !Number.isFinite(accessDays) || accessDays <= 0) {
-    return undefined;
+  if (developerMode === "instant") {
+    await activateSubscriptionForOrder(params.prisma, order.id, params.plan, params.now);
+    return {
+      orderId: order.id,
+      provider: "developer",
+      checkoutUrl,
+      providerSessionId,
+      status: "PAID",
+      checkoutKind: "redirect",
+      checkoutPayload: {
+        developerMode,
+      },
+    };
   }
 
   return {
-    id,
-    name,
-    description: typeof record.description === "string" ? record.description.trim() : undefined,
-    amountCents: Math.round(amountCents),
-    currency,
-    interval,
-    accessDays: Math.round(accessDays),
-    features,
+    orderId: order.id,
+    provider: "developer",
+    checkoutUrl,
+    providerSessionId,
+    status: "PENDING",
+    checkoutKind: "redirect",
+    checkoutPayload: {
+      developerMode,
+      simulateConfirmEndpoint: "/api/billing/checkout/confirm",
+      note: "Developer mode does not charge real money. Call confirm after your frontend simulates a successful payment.",
+    },
   };
 }
 
-function requireBillingPlan(planId: string): BillingPlan {
-  const plan = getBillingPlans().find((item) => item.id === planId);
-  if (!plan) {
-    throw new Error(`Unknown billing plan: ${planId}`);
-  }
-  return plan;
-}
-
-function buildMockCheckoutUrl(planId: string): string {
-  const token = createHash("sha256").update(`${planId}:${randomUUID()}`).digest("hex").slice(0, 16);
-  return `${resolveAppBaseUrl()}/billing/mock-success?token=${token}`;
-}
-
-async function activateSubscriptionForOrder(
-  prisma: PrismaClient,
-  orderId: string,
-  plan: BillingPlan,
-  options: {
-    providerSubscriptionId?: string;
-  } = {},
-) {
-  const order = await prisma.billingOrder.findUnique({
-    where: { id: orderId },
+async function createStripeCheckout(params: {
+  prisma: PrismaClient;
+  fetchImpl: typeof fetch;
+  plan: BillingPlan;
+  orderId: string;
+  email: string;
+  successUrl?: string;
+  cancelUrl?: string;
+}): Promise<BillingCheckoutResult> {
+  const session = await createStripeCheckoutSession({
+    fetchImpl: params.fetchImpl,
+    orderId: params.orderId,
+    email: params.email,
+    plan: params.plan,
+    successUrl: params.successUrl,
+    cancelUrl: params.cancelUrl,
   });
-  if (!order) {
-    throw new Error("Billing order not found during subscription activation.");
-  }
 
-  await prisma.userSubscription.updateMany({
-    where: {
-      userId: order.userId,
-      status: SubscriptionStatus.ACTIVE,
-    },
+  const updatedOrder = await params.prisma.billingOrder.update({
+    where: { id: params.orderId },
     data: {
-      status: SubscriptionStatus.CANCELED,
-      canceledAt: new Date(),
+      providerSessionId: session.id,
+      checkoutUrl: session.url,
+      metadata: toInputJson({
+        mode: "stripe",
+        sessionId: session.id,
+      }),
     },
   });
 
-  return prisma.userSubscription.create({
-    data: {
-      userId: order.userId,
-      planId: plan.id,
-      planName: plan.name,
-      provider: order.provider,
-      status: SubscriptionStatus.ACTIVE,
-      sourceOrderId: order.id,
-      providerSubscriptionId: options.providerSubscriptionId,
-      currentPeriodEnd: new Date(Date.now() + plan.accessDays * 24 * 60 * 60 * 1000),
-    },
-  });
+  return {
+    orderId: updatedOrder.id,
+    provider: "stripe",
+    checkoutUrl:
+      updatedOrder.checkoutUrl ??
+      `${resolveAppBaseUrl()}/billing/error?orderId=${encodeURIComponent(updatedOrder.id)}`,
+    providerSessionId: updatedOrder.providerSessionId ?? undefined,
+    status: "PENDING",
+    checkoutKind: "redirect",
+  };
 }
 
 async function createStripeCheckoutSession(params: {
+  fetchImpl: typeof fetch;
   orderId: string;
   email: string;
   plan: BillingPlan;
   successUrl?: string;
   cancelUrl?: string;
-}): Promise<StripeCheckoutSession> {
+}) {
   const secretKey = normalizeOptionalString(process.env.STRIPE_SECRET_KEY);
   if (!secretKey) {
     throw new Error("STRIPE_SECRET_KEY is required for Stripe billing.");
@@ -502,7 +611,7 @@ async function createStripeCheckoutSession(params: {
     form.set("line_items[0][price_data][recurring][interval]", params.plan.interval);
   }
 
-  const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+  const response = await params.fetchImpl("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${secretKey}`,
@@ -511,40 +620,170 @@ async function createStripeCheckoutSession(params: {
     body: form.toString(),
   });
 
-  const payload = (await response.json()) as StripeCheckoutSession & {
+  const payload = (await response.json()) as {
+    id?: string;
+    url?: string;
+    status?: string;
+    payment_status?: string;
+    subscription?: string;
     error?: { message?: string };
   };
   if (!response.ok || !payload.id) {
-    throw new Error(payload.error?.message ?? `Stripe checkout session create failed with status ${response.status}`);
+    throw new Error(
+      payload.error?.message ??
+        `Stripe checkout session create failed with status ${response.status}`,
+    );
   }
   return payload;
 }
 
-async function retrieveStripeCheckoutSession(sessionId: string): Promise<StripeCheckoutSession> {
+async function queryStripeCheckout(params: {
+  fetchImpl: typeof fetch;
+  order: StoredBillingOrder;
+  providerSessionId?: string;
+}): Promise<ProviderQueryResult> {
+  const sessionId = params.providerSessionId ?? params.order.providerSessionId;
+  if (!sessionId) {
+    throw new Error("providerSessionId is required to confirm a Stripe checkout.");
+  }
+
   const secretKey = normalizeOptionalString(process.env.STRIPE_SECRET_KEY);
   if (!secretKey) {
     throw new Error("STRIPE_SECRET_KEY is required for Stripe billing.");
   }
 
-  const response = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${secretKey}`,
+  const response = await params.fetchImpl(
+    `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${secretKey}`,
+      },
     },
-  });
-
-  const payload = (await response.json()) as StripeCheckoutSession & {
+  );
+  const payload = (await response.json()) as {
+    id?: string;
+    status?: string;
+    payment_status?: string;
+    subscription?: string;
     error?: { message?: string };
   };
   if (!response.ok || !payload.id) {
-    throw new Error(payload.error?.message ?? `Stripe checkout session retrieve failed with status ${response.status}`);
+    throw new Error(
+      payload.error?.message ??
+        `Stripe checkout session retrieve failed with status ${response.status}`,
+    );
   }
-  return payload;
+
+  return {
+    providerSessionId: payload.id,
+    providerSubscriptionId: payload.subscription ?? undefined,
+    paid:
+      payload.payment_status === "paid" ||
+      (payload.status === "complete" && payload.payment_status !== "unpaid"),
+    metadata: {
+      mode: "stripe",
+      confirmedAt: new Date().toISOString(),
+      stripeStatus: payload.status,
+      stripePaymentStatus: payload.payment_status,
+    },
+  };
 }
 
-function isStripeSessionPaid(session: StripeCheckoutSession): boolean {
-  if (session.payment_status === "paid") {
-    return true;
+async function activateSubscriptionForOrder(
+  prisma: PrismaClient,
+  orderId: string,
+  plan: BillingPlan,
+  now: () => Date,
+  providerSubscriptionId?: string,
+) {
+  const order = await prisma.billingOrder.findUnique({
+    where: { id: orderId },
+  });
+  if (!order) {
+    throw new Error("Billing order not found during subscription activation.");
   }
-  return session.status === "complete" && session.payment_status !== "unpaid";
+
+  const nowValue = now();
+  await prisma.userSubscription.updateMany({
+    where: {
+      userId: order.userId,
+      status: SubscriptionStatus.ACTIVE,
+    },
+    data: {
+      status: SubscriptionStatus.CANCELED,
+      canceledAt: nowValue,
+    },
+  });
+
+  return prisma.userSubscription.create({
+    data: {
+      userId: order.userId,
+      planId: plan.id,
+      planName: plan.name,
+      provider: order.provider,
+      status: SubscriptionStatus.ACTIVE,
+      sourceOrderId: order.id,
+      providerSubscriptionId,
+      currentPeriodEnd: new Date(nowValue.getTime() + plan.accessDays * 24 * 60 * 60 * 1000),
+    },
+  });
+}
+
+async function markOrderPaidAndActivateSubscription(params: {
+  prisma: PrismaClient;
+  now: () => Date;
+  order: StoredBillingOrder;
+  plan: BillingPlan;
+  providerSessionId?: string;
+  providerSubscriptionId?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const paidAt = params.now();
+  await params.prisma.billingOrder.update({
+    where: { id: params.order.id },
+    data: {
+      status: BillingOrderStatus.PAID,
+      paidAt,
+      providerSessionId: params.providerSessionId ?? params.order.providerSessionId ?? undefined,
+      providerSubscriptionId:
+        params.providerSubscriptionId ?? params.order.providerSubscriptionId ?? undefined,
+      metadata: toInputJson({
+        ...(asRecord(params.order.metadata) ?? {}),
+        ...(params.metadata ?? {}),
+      }),
+    },
+  });
+
+  return activateSubscriptionForOrder(
+    params.prisma,
+    params.order.id,
+    params.plan,
+    params.now,
+    params.providerSubscriptionId ?? params.order.providerSubscriptionId ?? undefined,
+  );
+}
+
+function providerNotificationResponse(
+  provider: "alipay" | "wechatpay",
+  statusCode: number,
+  ok: boolean,
+  message?: string,
+): BillingNotificationResult {
+  if (provider === "alipay") {
+    return {
+      statusCode,
+      contentType: "text/plain; charset=utf-8",
+      body: ok ? "success" : "failure",
+    };
+  }
+
+  return {
+    statusCode,
+    contentType: "application/json; charset=utf-8",
+    body: JSON.stringify({
+      code: ok ? "SUCCESS" : "FAIL",
+      message: ok ? "成功" : message ?? "notification verification failed",
+    }),
+  };
 }

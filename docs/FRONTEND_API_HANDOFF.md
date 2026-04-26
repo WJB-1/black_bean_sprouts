@@ -554,6 +554,7 @@ URL.revokeObjectURL(url);
 ```json
 {
   "planId": "starter-monthly",
+  "provider": "developer",
   "successUrl": "http://localhost:3000/billing/success?session_id={CHECKOUT_SESSION_ID}",
   "cancelUrl": "http://localhost:3000/billing/cancel"
 }
@@ -564,16 +565,21 @@ URL.revokeObjectURL(url);
 ```json
 {
   "orderId": "order-id",
-  "provider": "stripe",
-  "checkoutUrl": "https://checkout.stripe.com/...",
-  "providerSessionId": "cs_test_...",
-  "status": "PENDING"
+  "provider": "wechatpay",
+  "checkoutUrl": "weixin://wxpay/bizpayurl?pr=...",
+  "providerSessionId": "order-id",
+  "status": "PENDING",
+  "checkoutKind": "qr",
+  "checkoutPayload": {
+    "qrCodeUrl": "weixin://wxpay/bizpayurl?pr=..."
+  }
 }
 ```
 
 前端动作：
 
-- 直接跳转到 `checkoutUrl`
+- `checkoutKind=redirect`：直接跳转到 `checkoutUrl`
+- `checkoutKind=qr`：把 `checkoutPayload.qrCodeUrl` 渲染成二维码给用户扫码
 
 ## 9.4 支付成功后确认订单
 
@@ -602,9 +608,20 @@ URL.revokeObjectURL(url);
 
 说明：
 
-- 当前支持 `mock` 和 `stripe`
-- 本地未配置 Stripe 时，默认走 `mock`
-- 前端可以先接完整流程，不必等真实支付环境
+- 当前支持 `developer`、`stripe`、`alipay`、`wechatpay`
+- `developer` 是开发者模式，不扣真钱，但能测试完整链路
+- `alipay` 是页面跳转
+- `wechatpay` 当前是 Native 扫码模式
+- 账单 plan 响应里的 `availableProviders` 可直接用来渲染支付方式按钮
+
+## 9.5 服务端回调入口
+
+真实支付环境下，第三方支付平台会直接回调后端：
+
+- `POST /api/billing/providers/alipay/notify`
+- `POST /api/billing/providers/wechatpay/notify`
+
+前端不用主动调这两个接口，但要知道最终支付状态可能先由服务端回调更新，再由前端轮询 `/api/billing/checkout/confirm` 或 `/api/billing/me` 看到结果。
 
 ## 10. 管理后台接口
 

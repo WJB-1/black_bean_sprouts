@@ -84,6 +84,50 @@ OPENCLAW_MODEL=openai-codex/gpt-5.4
 - `openai-codex/*` 是 ChatGPT / Codex OAuth 路径
 - 两条路在 OpenClaw 里是分开的，不要混用
 
+### Billing / 支付配置
+
+开发调试推荐先用开发者模式，不扣真钱但会跑完整下单 -> 待支付 -> 确认支付 -> 开通订阅链路：
+
+```dotenv
+BILLING_PROVIDERS=developer
+BILLING_DEFAULT_PROVIDER=developer
+BILLING_DEVELOPER_MODE=manual
+```
+
+如果你要接支付宝网页支付：
+
+```dotenv
+BILLING_PROVIDERS=developer,alipay
+BILLING_DEFAULT_PROVIDER=alipay
+ALIPAY_APP_ID=你的支付宝应用ID
+ALIPAY_APP_PRIVATE_KEY=你的应用私钥PEM
+ALIPAY_ALIPAY_PUBLIC_KEY=支付宝公钥PEM
+ALIPAY_RETURN_URL=http://localhost:3000/billing/success
+ALIPAY_NOTIFY_URL=http://localhost:3000/api/billing/providers/alipay/notify
+```
+
+如果你要接微信支付 Native 扫码：
+
+```dotenv
+BILLING_PROVIDERS=developer,wechatpay
+BILLING_DEFAULT_PROVIDER=wechatpay
+WECHAT_PAY_APP_ID=你的微信支付AppID
+WECHAT_PAY_MCH_ID=你的商户号
+WECHAT_PAY_MCH_SERIAL_NO=你的商户证书序列号
+WECHAT_PAY_PRIVATE_KEY=你的商户私钥PEM
+WECHAT_PAY_API_V3_KEY=32位APIv3Key
+WECHAT_PAY_PLATFORM_CERT=微信支付平台证书PEM
+WECHAT_PAY_PLATFORM_CERT_SERIAL=平台证书序列号
+WECHAT_PAY_NOTIFY_URL=http://localhost:3000/api/billing/providers/wechatpay/notify
+```
+
+说明：
+
+- `developer` 是开发者模式，适合前后端联调
+- `alipay` 走页面跳转
+- `wechatpay` 当前走 Native 扫码，后端会返回 `code_url`，前端应渲染二维码
+- 真实支付成功的最终依据应以服务端查询/回调为准，不要只看前端跳转页
+
 ## 3. 本地启动
 
 推荐直接用一键脚本：
