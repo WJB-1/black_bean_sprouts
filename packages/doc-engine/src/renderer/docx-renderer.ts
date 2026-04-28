@@ -1,6 +1,7 @@
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, LineRuleType,
-  Table, TableRow, TableCell, WidthType, AlignmentType,
+  Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle,
+  type FileChild,
 } from "docx";
 import type { Doc, BlockNode, ParagraphBlock, HeadingBlock, FigureBlock, TableBlock as DocTable, TableRow as DocTableRow, FormulaBlock, SectionBlock, AbstractBlock, ReferenceListBlock, InlineNode, ReferenceItem } from "@black-bean-sprouts/doc-schema";
 import type { HeadingStyle } from "../style/style-profile.js";
@@ -13,7 +14,7 @@ export class DocxRenderer {
   constructor(private readonly profile: StyleProfileDsl = defaultStyleProfile) {}
 
   async render(doc: Doc): Promise<RenderResult> {
-    const children: Paragraph[] = [];
+    const children: FileChild[] = [];
 
     // Title
     children.push(new Paragraph({
@@ -79,11 +80,11 @@ export class DocxRenderer {
    * Public entry point for incremental rendering of a single block.
    * Returns null if the block type is not recognised.
    */
-  renderBlock(block: BlockNode): Paragraph[] | null {
+  renderBlock(block: BlockNode): FileChild[] | null {
     return this.renderBlockInternal(block);
   }
 
-  private renderBlockInternal(block: BlockNode): Paragraph[] | null {
+  private renderBlockInternal(block: BlockNode): FileChild[] | null {
     switch (block.type) {
       case "paragraph": return [this.renderParagraph(block)];
       case "heading": return [this.renderHeading(block)];
@@ -97,11 +98,20 @@ export class DocxRenderer {
     }
   }
 
-  private renderSection(section: SectionBlock): Paragraph[] {
-    const result: Paragraph[] = [];
+  private renderSection(section: SectionBlock): FileChild[] {
+    const result: FileChild[] = [];
+    const style = this.getHeadingStyle(1);
     result.push(new Paragraph({
-      children: [new TextRun({ text: section.title, bold: true, size: 32 })],
-      spacing: { before: 400, after: 200 },
+      children: [
+        new TextRun({
+          text: section.title,
+          bold: style.bold,
+          size: style.size,
+          font: this.profile.fonts.headingFamily,
+          ...(style.color ? { color: style.color } : {}),
+        }),
+      ],
+      spacing: { before: style.spacingBefore, after: style.spacingAfter },
     }));
     for (const child of section.children) {
       const r = this.renderBlock(child);
@@ -131,9 +141,21 @@ export class DocxRenderer {
     });
   }
 
-  private renderAbstract(abstract: AbstractBlock): Paragraph[] {
-    const result: Paragraph[] = [];
-    result.push(new Paragraph({ children: [new TextRun({ text: "Abstract", bold: true, size: 28 })], spacing: { before: 300, after: 100 } }));
+  private renderAbstract(abstract: AbstractBlock): FileChild[] {
+    const result: FileChild[] = [];
+    const style = this.getHeadingStyle(2);
+    result.push(new Paragraph({
+      children: [
+        new TextRun({
+          text: "Abstract",
+          bold: style.bold,
+          size: style.size,
+          font: this.profile.fonts.headingFamily,
+          ...(style.color ? { color: style.color } : {}),
+        }),
+      ],
+      spacing: { before: style.spacingBefore, after: style.spacingAfter },
+    }));
     for (const para of abstract.children) {
       result.push(new Paragraph({
         children: this.renderInlines(para.children),
@@ -147,39 +169,94 @@ export class DocxRenderer {
     return result;
   }
 
-  private renderFigure(figure: FigureBlock): Paragraph[] {
-    const result: Paragraph[] = [];
-    result.push(new Paragraph({ children: [new TextRun({ text: "[Figure: " + (figure.alt ?? figure.src) + "]", italics: true, size: 20 })], alignment: AlignmentType.CENTER }));
-    if (figure.caption) result.push(new Paragraph({ children: this.renderInlines(figure.caption), alignment: AlignmentType.CENTER, spacing: { after: 200 } }));
+  private renderFigure(figure: FigureBlock): FileChild[] {
+    const result: FileChild[] = [];
+    result.push(new Paragraph({
+      children: [
+        new TextRun({
+          text: "[Figure] " + (figure.alt ?? figure.src),
+          italics: true,
+          size: this.profile.figureCaption.size,
+        }),
+      ],
+      alignment: this.resolveAlignment(this.profile.figureCaption.alignment),
+    }));
+    if (figure.caption) {
+      result.push(this.renderCaption(figure.caption, this.profile.figureCaption));
+    }
     return result;
   }
 
-  private renderTable(table: DocTable): Paragraph[] {
+  private renderTable(table: DocTable): FileChild[] {
+    const result: FileChild[] = [];
+    const columnCount = Math.max(
+      table.headerRow?.cells.length ?? 0,
+      table.rows.reduce((max, row) => Math.max(max, row.cells.length), 0),
+      1,
+    );
     const rows: TableRow[] = [];
-    if (table.headerRow) rows.push(this.makeRow(table.headerRow, true));
-    for (const row of table.rows) rows.push(this.makeRow(row, false));
-    // Tables need special handling - return placeholder for now
-    return [new Paragraph({ children: [new TextRun({ text: "[Table with " + table.rows.length + " rows]", italics: true })], alignment: AlignmentType.CENTER })];
+    if (table.caption?.length) {
+      result.push(this.renderCaption(table.caption, this.profile.tableCaption));
+    }
+    if (table.headerRow) rows.push(this.makeRow(table.headerRow, true, columnCount));
+    for (const row of table.rows) rows.push(this.makeRow(row, false, columnCount));
+    result.push(new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows,
+      borders: {
+        top: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
+        bottom: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
+        left: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
+        right: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
+        insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+        insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+      },
+    }));
+    result.push(new Paragraph({ spacing: { after: 180 } }));
+    return result;
   }
 
-  private makeRow(row: DocTableRow, isHeader: boolean): TableRow {
+  private makeRow(row: DocTableRow, isHeader: boolean, columnCount: number): TableRow {
+    const paddedCells = [...row.cells];
+    while (paddedCells.length < columnCount) {
+      paddedCells.push({
+        id: `padding-${paddedCells.length}`,
+        children: [{ type: "paragraph", id: `padding-paragraph-${paddedCells.length}`, children: [] }],
+      });
+    }
     return new TableRow({
-      children: row.cells.map(cell => new TableCell({
-        children: cell.children.map(para => new Paragraph({ children: this.renderInlines(para.children) })),
+      tableHeader: isHeader,
+      children: paddedCells.map((cell) => new TableCell({
+        width: { size: Math.floor(100 / columnCount), type: WidthType.PERCENTAGE },
+        children: cell.children.map((para) => new Paragraph({
+          children: this.renderInlines(para.children, isHeader ? { bold: true } : undefined),
+        })),
       })),
     });
   }
 
-  private renderFormula(formula: FormulaBlock): Paragraph[] {
-    const result: Paragraph[] = [];
+  private renderFormula(formula: FormulaBlock): FileChild[] {
+    const result: FileChild[] = [];
     result.push(new Paragraph({ children: [new TextRun({ text: formula.latex, italics: true, size: 24, font: "Cambria Math" })], alignment: AlignmentType.CENTER }));
-    if (formula.caption) result.push(new Paragraph({ children: this.renderInlines(formula.caption), alignment: AlignmentType.CENTER }));
+    if (formula.caption) result.push(this.renderCaption(formula.caption, this.profile.figureCaption));
     return result;
   }
 
-  private renderReferenceList(list: ReferenceListBlock): Paragraph[] {
-    const result: Paragraph[] = [];
-    result.push(new Paragraph({ children: [new TextRun({ text: "References", bold: true, size: 28 })], spacing: { before: 400, after: 200 } }));
+  private renderReferenceList(list: ReferenceListBlock): FileChild[] {
+    const result: FileChild[] = [];
+    const style = this.getHeadingStyle(2);
+    result.push(new Paragraph({
+      children: [
+        new TextRun({
+          text: "References",
+          bold: style.bold,
+          size: style.size,
+          font: this.profile.fonts.headingFamily,
+          ...(style.color ? { color: style.color } : {}),
+        }),
+      ],
+      spacing: { before: style.spacingBefore, after: style.spacingAfter },
+    }));
     for (const item of list.items) {
       const parts: TextRun[] = [
         new TextRun({ text: item.authors.join(", "), size: this.profile.fonts.defaultSize }),
@@ -193,15 +270,27 @@ export class DocxRenderer {
     return result;
   }
 
-  private renderInlines(inlines: readonly InlineNode[]): TextRun[] {
+  private renderInlines(
+    inlines: readonly InlineNode[],
+    overrides: {
+      readonly bold?: boolean;
+      readonly italics?: boolean;
+      readonly size?: number;
+      readonly font?: string;
+      readonly color?: string;
+    } = {},
+  ): TextRun[] {
     return inlines.map(inline => {
       if (inline.type === "text") {
         const marks = inline.marks ?? [];
         return new TextRun({
-          text: inline.text, size: this.profile.fonts.defaultSize, font: this.profile.fonts.defaultFamily,
-          ...(marks.some(m => m.type === "bold") ? { bold: true } : {}),
-          ...(marks.some(m => m.type === "italic") ? { italics: true } : {}),
+          text: inline.text,
+          size: overrides.size ?? this.profile.fonts.defaultSize,
+          font: overrides.font ?? this.profile.fonts.defaultFamily,
+          ...(marks.some(m => m.type === "bold") || overrides.bold ? { bold: true } : {}),
+          ...(marks.some(m => m.type === "italic") || overrides.italics ? { italics: true } : {}),
           ...(marks.some(m => m.type === "underline") ? { underline: {} } : {}),
+          ...(overrides.color ? { color: overrides.color } : {}),
         });
       }
       if (inline.type === "hardBreak") return new TextRun({ text: "\n", break: 1 });
@@ -223,6 +312,33 @@ export class DocxRenderer {
       4: HeadingLevel.HEADING_4, 5: HeadingLevel.HEADING_5, 6: HeadingLevel.HEADING_6,
     };
     return map[level] ?? HeadingLevel.HEADING_1;
+  }
+
+  private renderCaption(
+    caption: readonly InlineNode[],
+    style: StyleProfileDsl["figureCaption"],
+  ): Paragraph {
+    return new Paragraph({
+      children: this.renderInlines(caption, {
+        italics: style.italic,
+        size: style.size,
+      }),
+      alignment: this.resolveAlignment(style.alignment),
+      spacing: { after: 180 },
+    });
+  }
+
+  private resolveAlignment(
+    alignment: "center" | "left" | "right",
+  ): (typeof AlignmentType)[keyof typeof AlignmentType] {
+    switch (alignment) {
+      case "left":
+        return AlignmentType.LEFT;
+      case "right":
+        return AlignmentType.RIGHT;
+      default:
+        return AlignmentType.CENTER;
+    }
   }
 }
 

@@ -197,6 +197,23 @@ function Assert-RequiredTools {
   }
 }
 
+function Get-ServerCommandLine {
+  if ($env:ENABLE_OPENCLAW_KERNEL -ne "true") {
+    return "node packages/server/dist/index.js"
+  }
+
+  if (-not (Get-Command "volta" -ErrorAction SilentlyContinue)) {
+    throw "ENABLE_OPENCLAW_KERNEL=true requires Volta so the backend can run on Node 24.x."
+  }
+
+  $serverNodeVersion = $env:OPENCLAW_SERVER_NODE_VERSION
+  if (-not $serverNodeVersion) {
+    $serverNodeVersion = "24.14.0"
+  }
+
+  return "volta run --node $serverNodeVersion node packages/server/dist/index.js"
+}
+
 function New-BootstrapScript([string]$Name, [string]$CommandLine) {
   $bootstrapPath = Join-Path $RuntimeDir "$Name.bootstrap.ps1"
   $escapedRoot = $RepoRoot.Replace("'", "''")
@@ -417,9 +434,10 @@ function Start-Workbench {
   }
 
   Write-Info "Starting backend service"
+  $serverCommandLine = Get-ServerCommandLine
   Start-ManagedService `
     -Name "server" `
-    -CommandLine "node packages/server/dist/index.js" `
+    -CommandLine $serverCommandLine `
     -Port 3000 `
     -Url "http://localhost:3000"
 

@@ -36,6 +36,9 @@
             </label>
           </div>
         </div>
+        <p v-if="draftRecoveryMessage" class="message message--success message--inline">
+          {{ draftRecoveryMessage }}
+        </p>
 
         <label class="field">
           <span>候选标题</span>
@@ -118,6 +121,9 @@
           <button class="primary-btn" :disabled="generating || !rawText.trim()" @click="generateDocument">
             {{ generating ? "整理中..." : "一键整理" }}
           </button>
+          <button class="secondary-btn" :disabled="!doc || savingToEditor" @click="openInEditor">
+            {{ savingToEditor ? "淇濆瓨涓?.." : "淇濆瓨骞惰繘鍏ョ紪杈戝櫒" }}
+          </button>
           <button class="secondary-btn" :disabled="!doc || exportingFormat !== null" @click="downloadFile('docx')">
             {{ exportingFormat === "docx" ? "导出 DOCX..." : "下载 DOCX" }}
           </button>
@@ -149,6 +155,61 @@
           <h2>结构化结果</h2>
           <span v-if="warning" class="warning-badge">已回退导入</span>
         </div>
+
+        <section class="recovery-card">
+          <div class="recovery-card-header">
+            <div>
+              <h3>找回最近文档</h3>
+              <p class="hint hint--tight">
+                已保存到系统的文档会显示在这里。当前页面草稿仍会自动保存在本机浏览器。
+              </p>
+            </div>
+            <button
+              class="ghost-btn ghost-btn--small"
+              type="button"
+              :disabled="recentDocumentsLoading"
+              @click="loadRecentDocuments"
+            >
+              {{ recentDocumentsLoading ? "刷新中..." : "刷新列表" }}
+            </button>
+          </div>
+
+          <div class="recover-inline">
+            <input
+              v-model="recoverDocumentId"
+              class="text-input"
+              placeholder="输入文档 ID 直接找回"
+              @keydown.enter.prevent="openRecoverDocument()"
+            />
+            <button class="secondary-btn recent-document-btn" type="button" @click="openRecoverDocument()">
+              打开
+            </button>
+          </div>
+
+          <p v-if="recentDocumentsError" class="message message--warning message--inline">
+            {{ recentDocumentsError }}
+          </p>
+          <div v-else-if="recentDocumentsLoading && recentDocuments.length === 0" class="empty-state">
+            正在加载最近文档...
+          </div>
+          <div v-else-if="recentDocuments.length === 0" class="empty-state">
+            还没有可找回的已保存文档。点击“存为文档并打开编辑器”后，这里就会出现记录。
+          </div>
+          <ul v-else class="recent-document-list">
+            <li v-for="item in recentDocuments" :key="item.id" class="recent-document-item">
+              <div class="recent-document-meta">
+                <strong class="recent-document-title">{{ item.title || "Untitled document" }}</strong>
+                <span class="recent-document-subtitle">ID: {{ item.id }}</span>
+                <span class="recent-document-subtitle">
+                  版本 {{ item.version }} · 更新于 {{ formatRecentDocumentTime(item.updatedAt) }}
+                </span>
+              </div>
+              <button class="secondary-btn recent-document-btn" type="button" @click="openRecentDocument(item.id)">
+                打开
+              </button>
+            </li>
+          </ul>
+        </section>
 
         <div v-if="error" class="message message--error">{{ error }}</div>
         <div v-else-if="warning" class="message message--warning">{{ warning }}</div>
@@ -197,6 +258,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { apiFetch } from "../lib/api.js";
 import type { BlockNode, Doc, SectionBlock } from "@black-bean-sprouts/doc-schema";
 
@@ -247,6 +309,24 @@ type ExportStyleSettings = {
   marginRightMm: number;
 };
 
+type StoredWorkbenchDraft = {
+  title?: string;
+  rawText?: string;
+  sourceFileName?: string;
+  warning?: string;
+  modelOutput?: string;
+  doc?: Doc | null;
+  savedAt?: string;
+};
+
+type RecentDocumentSummary = {
+  id: string;
+  title: string;
+  version: number;
+  updatedAt: string;
+  createdAt: string;
+};
+
 const EXAMPLE_TITLE = "示例医学原稿";
 const EXAMPLE_RAW_TEXT = `慢性肾病患者营养支持路径优化研究
 
@@ -285,6 +365,7 @@ const sourceFileName = ref("");
 const importing = ref(false);
 const generating = ref(false);
 const exportingFormat = ref<"docx" | "latex" | null>(null);
+const savingToEditor = ref(false);
 const dragActive = ref(false);
 const error = ref("");
 const warning = ref("");
@@ -294,8 +375,15 @@ const doc = ref<Doc | null>(null);
 const styleProfiles = ref<WorkbenchStyleProfile[]>([]);
 const DOWNLOAD_WITH_PICKER_KEY = "bbs.workbench.downloadWithPicker";
 const EXPORT_STYLE_KEY = "bbs.workbench.exportStyle";
+const WORKBENCH_DRAFT_KEY = "bbs.workbench.draft.v1";
 const downloadWithPicker = ref(loadStoredBoolean(DOWNLOAD_WITH_PICKER_KEY, false));
 const exportStyle = ref<ExportStyleSettings>(loadStoredStyleSettings());
+const draftRecoveryMessage = ref("");
+const recentDocuments = ref<RecentDocumentSummary[]>([]);
+const recentDocumentsLoading = ref(false);
+const recentDocumentsError = ref("");
+const recoverDocumentId = ref("");
+const router = useRouter();
 
 const prettyDoc = computed(() => (doc.value ? JSON.stringify(doc.value, null, 2) : ""));
 const blockCount = computed(() => countBlocks(doc.value?.children ?? []));
@@ -324,8 +412,18 @@ watch(
   { deep: true },
 );
 
-onMounted(async () => {
-  await loadStyleProfiles();
+watch(
+  [title, rawText, sourceFileName, warning, modelOutput, doc],
+  () => {
+    persistWorkbenchDraft();
+  },
+  { deep: true },
+);
+
+onMounted(() => {
+  restoreWorkbenchDraft();
+  void loadStyleProfiles();
+  void loadRecentDocuments();
 });
 
 async function loadStyleProfiles() {
@@ -362,6 +460,22 @@ async function loadStyleProfiles() {
         marginRightMm: DEFAULT_STYLE.marginRightMm,
       },
     }];
+  }
+}
+
+async function loadRecentDocuments() {
+  recentDocumentsLoading.value = true;
+  recentDocumentsError.value = "";
+
+  try {
+    recentDocuments.value = await apiFetch<RecentDocumentSummary[]>("/documents?limit=12", {
+      method: "GET",
+    });
+  } catch (cause) {
+    recentDocuments.value = [];
+    recentDocumentsError.value = cause instanceof Error ? cause.message : "加载最近文档失败。";
+  } finally {
+    recentDocumentsLoading.value = false;
   }
 }
 
@@ -446,6 +560,62 @@ async function downloadFile(format: "docx" | "latex") {
   }
 }
 
+async function openInEditor() {
+  if (!doc.value || savingToEditor.value) {
+    return;
+  }
+
+  error.value = "";
+  exportMessage.value = "";
+  savingToEditor.value = true;
+
+  try {
+    const response = await apiFetch<{
+      id: string;
+      version: number;
+      content: Doc;
+    }>("/documents", {
+      method: "POST",
+      body: JSON.stringify({
+        title: doc.value.metadata.title || title.value,
+        content: doc.value,
+      }),
+    });
+
+    exportMessage.value = `宸蹭繚瀛樹负鏂囨。锛岀幇鍦ㄨ烦杞埌缂栬緫鍣?${response.id}`;
+    recoverDocumentId.value = response.id;
+    void loadRecentDocuments();
+    await router.push(`/editor/${response.id}`);
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "淇濆瓨鏂囨。澶辫触銆?";
+  } finally {
+    savingToEditor.value = false;
+  }
+}
+
+async function openRecentDocument(id: string) {
+  recoverDocumentId.value = id;
+  await openRecoverDocument(id);
+}
+
+async function openRecoverDocument(inputId?: string) {
+  const documentId = (inputId ?? recoverDocumentId.value).trim();
+  if (!documentId) {
+    recentDocumentsError.value = "请先输入文档 ID。";
+    return;
+  }
+
+  recentDocumentsError.value = "";
+  try {
+    await apiFetch<{ id: string; version: number; content: Doc }>(`/documents/${encodeURIComponent(documentId)}`, {
+      method: "GET",
+    });
+    await router.push(`/editor/${documentId}`);
+  } catch (cause) {
+    recentDocumentsError.value = cause instanceof Error ? cause.message : "打开文档失败。";
+  }
+}
+
 function buildExportStylePayload() {
   return {
     styleProfileId: exportStyle.value.styleProfileId,
@@ -490,6 +660,61 @@ function persistDownloadPreference() {
 function persistStyleSettings() {
   try {
     window.localStorage.setItem(EXPORT_STYLE_KEY, JSON.stringify(exportStyle.value));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function persistWorkbenchDraft() {
+  try {
+    const draft: StoredWorkbenchDraft = {
+      title: title.value,
+      rawText: rawText.value,
+      sourceFileName: sourceFileName.value,
+      warning: warning.value,
+      modelOutput: modelOutput.value,
+      doc: doc.value,
+      savedAt: new Date().toISOString(),
+    };
+    window.localStorage.setItem(WORKBENCH_DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function restoreWorkbenchDraft() {
+  try {
+    const raw = window.localStorage.getItem(WORKBENCH_DRAFT_KEY);
+    if (!raw) {
+      return;
+    }
+
+    const draft = JSON.parse(raw) as StoredWorkbenchDraft;
+    title.value = typeof draft.title === "string" ? draft.title : "";
+    rawText.value = typeof draft.rawText === "string" ? draft.rawText : "";
+    sourceFileName.value = typeof draft.sourceFileName === "string" ? draft.sourceFileName : "";
+    warning.value = typeof draft.warning === "string" ? draft.warning : "";
+    modelOutput.value = typeof draft.modelOutput === "string" ? draft.modelOutput : "";
+    doc.value = isStoredDoc(draft.doc) ? draft.doc : null;
+
+    const restoredParts = [
+      rawText.value.trim() ? "鍘熺" : "",
+      doc.value ? "缁撴瀯鍖栫粨鏋?" : "",
+    ].filter(Boolean);
+    if (restoredParts.length > 0) {
+      const savedAt = formatDraftTime(draft.savedAt);
+      draftRecoveryMessage.value = savedAt
+        ? `宸茶嚜鍔ㄦ仮澶嶄笂娆¤崏绋匡細${restoredParts.join(" / ")}锛堣嚜鍔ㄤ繚瀛樹簬 ${savedAt}锛?`
+        : `宸茶嚜鍔ㄦ仮澶嶄笂娆¤崏绋匡細${restoredParts.join(" / ")}銆?`;
+    }
+  } catch {
+    // ignore invalid local state
+  }
+}
+
+function clearStoredWorkbenchDraft() {
+  try {
+    window.localStorage.removeItem(WORKBENCH_DRAFT_KEY);
   } catch {
     // ignore storage failures
   }
@@ -577,6 +802,8 @@ function clearWorkbench() {
   exportMessage.value = "";
   modelOutput.value = "";
   doc.value = null;
+  draftRecoveryMessage.value = "";
+  clearStoredWorkbenchDraft();
 }
 
 async function copyStructuredJson() {
@@ -858,6 +1085,38 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 function toNumber(value: number | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
+
+function formatDraftTime(value: string | undefined): string {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleString();
+}
+
+function formatRecentDocumentTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString();
+}
+
+function isStoredDoc(value: unknown): value is Doc {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Partial<Doc>;
+  return (
+    typeof candidate.version === "number" &&
+    Boolean(candidate.metadata) &&
+    typeof candidate.metadata === "object" &&
+    Array.isArray(candidate.children)
+  );
+}
 </script>
 
 <style scoped>
@@ -1129,6 +1388,77 @@ select.text-input {
   gap: 16px;
 }
 
+.recovery-card {
+  border: 1px solid #e6ebf2;
+  border-radius: 14px;
+  padding: 16px;
+  background: #fafcff;
+}
+
+.recovery-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.recovery-card-header h3 {
+  margin: 0;
+}
+
+.ghost-btn--small {
+  padding: 10px 12px;
+}
+
+.recover-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.recent-document-list {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recent-document-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid #e6ebf2;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.recent-document-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recent-document-title {
+  color: #18212f;
+  word-break: break-word;
+}
+
+.recent-document-subtitle {
+  font-size: 12px;
+  color: #627286;
+  word-break: break-all;
+}
+
+.recent-document-btn {
+  white-space: nowrap;
+}
+
 .empty-state,
 .message {
   border-radius: 14px;
@@ -1231,6 +1561,12 @@ select.text-input {
 
   .stats-grid,
   .style-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .recover-inline,
+  .recent-document-item {
+    display: grid;
     grid-template-columns: 1fr;
   }
 }

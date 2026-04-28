@@ -9,7 +9,7 @@
     </header>
     <main class="content">
       <div class="editor-panel"><BlockTreeEditor :document-id="effectiveDocumentId" /></div>
-      <aside class="agent-panel"><AgentChat /></aside>
+      <aside class="agent-panel"><AgentChat :document-id="effectiveDocumentId" /></aside>
     </main>
   </div>
 </template>

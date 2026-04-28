@@ -1,5 +1,5 @@
 const DEFAULT_BASE_URL = "https://api.siliconflow.cn/v1";
-const DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct";
+const DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4-Flash";
 
 type SiliconFlowResponse = {
   choices?: Array<{

@@ -96,6 +96,77 @@ function getBootstrapApiKeyEnvVar(providerId: string): string {
   );
 }
 
+function getCustomProviderSupportsTools(): boolean {
+  return normalizeOptionalString(process.env.OPENCLAW_CUSTOM_PROVIDER_SUPPORTS_TOOLS) !== "false";
+}
+
+function mergeProviderModels(
+  existingProviderConfig: JsonRecord | undefined,
+  canonicalProviderConfig: JsonRecord | undefined,
+): unknown[] | undefined {
+  const canonicalModels = Array.isArray(canonicalProviderConfig?.models)
+    ? canonicalProviderConfig.models
+    : [];
+  const existingModels = Array.isArray(existingProviderConfig?.models)
+    ? existingProviderConfig.models
+    : [];
+
+  if (existingModels.length === 0) {
+    return canonicalModels;
+  }
+  if (canonicalModels.length === 0) {
+    return existingModels;
+  }
+
+  const canonicalById = new Map<string, JsonRecord>();
+  const existingById = new Set<string>();
+  for (const model of canonicalModels) {
+    const record = asRecord(model);
+    if (typeof record?.id === "string") {
+      canonicalById.set(record.id, record);
+    }
+  }
+
+  const merged = existingModels.map((model) => {
+    const existingModel = asRecord(model);
+    const modelId = typeof existingModel?.id === "string" ? existingModel.id : undefined;
+    if (modelId) {
+      existingById.add(modelId);
+    }
+    const canonicalModel = modelId ? canonicalById.get(modelId) : undefined;
+    if (!existingModel || !canonicalModel) {
+      return model;
+    }
+
+    const canonicalCompat = asRecord(canonicalModel.compat) ?? {};
+    const existingCompat = asRecord(existingModel.compat) ?? {};
+
+    return {
+      ...canonicalModel,
+      ...existingModel,
+      compat: {
+        ...canonicalCompat,
+        ...existingCompat,
+        ...(canonicalCompat.requiresStringContent !== undefined
+          ? { requiresStringContent: canonicalCompat.requiresStringContent }
+          : {}),
+        ...(canonicalCompat.supportsTools !== undefined
+          ? { supportsTools: canonicalCompat.supportsTools }
+          : {}),
+      },
+    };
+  });
+
+  for (const model of canonicalModels) {
+    const canonicalModel = asRecord(model);
+    if (typeof canonicalModel?.id === "string" && !existingById.has(canonicalModel.id)) {
+      merged.push(model);
+    }
+  }
+
+  return merged;
+}
+
 function buildCanonicalProviderConfig(params: {
   providerId: string;
   modelId: string;
@@ -127,7 +198,7 @@ function buildCanonicalProviderConfig(params: {
         maxTokens: DEFAULT_MAX_TOKENS,
         compat: {
           requiresStringContent: true,
-          supportsTools: false,
+          supportsTools: getCustomProviderSupportsTools(),
         },
       },
     ],
@@ -234,9 +305,10 @@ function mergeCanonicalConfig(
         ...(typeof existingCanonicalProvider?.authHeader === "boolean"
           ? {}
           : { authHeader: (asRecord(canonicalProviderConfig) ?? {}).authHeader }),
-        ...(Array.isArray(existingCanonicalProvider?.models)
-          ? {}
-          : { models: (asRecord(canonicalProviderConfig) ?? {}).models }),
+        models: mergeProviderModels(
+          existingCanonicalProvider,
+          asRecord(canonicalProviderConfig),
+        ),
       }
     : undefined;
 
@@ -293,14 +365,14 @@ function mergeCanonicalConfig(
           ...canonicalDefaultModel,
           ...existingDefaultModel,
           primary:
-            typeof existingDefaultModel.primary === "string"
-              ? existingDefaultModel.primary
-              : canonicalDefaultModel.primary,
+            typeof canonicalDefaultModel.primary === "string"
+              ? canonicalDefaultModel.primary
+              : existingDefaultModel.primary,
         },
-        models:
-          Object.keys(existingDefaultModels).length > 0
-            ? existingDefaultModels
-            : canonicalDefaultModels,
+        models: {
+          ...existingDefaultModels,
+          ...canonicalDefaultModels,
+        },
       },
     },
     messages: {

@@ -206,6 +206,114 @@ const airyReview = createStyleProfile({
   },
 });
 
+const journalBlueprint = createStyleProfile({
+  ...withoutHash(academicClassic),
+  id: "journal-blueprint",
+  name: "期刊蓝图",
+  fonts: {
+    defaultFamily: "Cambria",
+    headingFamily: "Aptos",
+    defaultSize: 23,
+    lineSpacing: 1.35,
+  },
+  pageLayout: {
+    width: 210,
+    height: 297,
+    marginTop: 22,
+    marginBottom: 22,
+    marginLeft: 24,
+    marginRight: 22,
+  },
+  headings: {
+    h1: { size: 31, bold: true, color: "1F4E79", spacingBefore: 320, spacingAfter: 180 },
+    h2: { size: 27, bold: true, color: "2F75B5", spacingBefore: 240, spacingAfter: 140 },
+    h3: { size: 24, bold: true, color: "5B9BD5", spacingBefore: 180, spacingAfter: 100 },
+  },
+  figureCaption: { size: 19, italic: true, alignment: "center" },
+  tableCaption: { size: 19, italic: true, alignment: "center" },
+});
+
+const grantProposal = createStyleProfile({
+  ...withoutHash(academicClassic),
+  id: "grant-proposal",
+  name: "基金申请",
+  fonts: {
+    defaultFamily: "Calibri",
+    headingFamily: "Segoe UI",
+    defaultSize: 23,
+    lineSpacing: 1.4,
+  },
+  pageLayout: {
+    width: 210,
+    height: 297,
+    marginTop: 24,
+    marginBottom: 24,
+    marginLeft: 26,
+    marginRight: 24,
+  },
+  headings: {
+    h1: { size: 30, bold: true, color: "2F6B3B", spacingBefore: 280, spacingAfter: 160 },
+    h2: { size: 26, bold: true, color: "4F8A4D", spacingBefore: 220, spacingAfter: 130 },
+    h3: { size: 23, bold: true, color: "6AA84F", spacingBefore: 170, spacingAfter: 90 },
+  },
+  figureCaption: { size: 19, italic: false, alignment: "left" },
+  tableCaption: { size: 19, italic: false, alignment: "left" },
+});
+
+const bookChapter = createStyleProfile({
+  ...withoutHash(academicClassic),
+  id: "book-chapter",
+  name: "书章节奏",
+  fonts: {
+    defaultFamily: "Georgia",
+    headingFamily: "Garamond",
+    defaultSize: 24,
+    lineSpacing: 1.65,
+  },
+  pageLayout: {
+    width: 210,
+    height: 297,
+    marginTop: 28,
+    marginBottom: 28,
+    marginLeft: 32,
+    marginRight: 28,
+  },
+  headings: {
+    h1: { size: 34, bold: true, color: "7A3E00", spacingBefore: 420, spacingAfter: 220 },
+    h2: { size: 29, bold: true, color: "A65E00", spacingBefore: 320, spacingAfter: 170 },
+    h3: { size: 25, bold: false, color: "BF7F11", spacingBefore: 220, spacingAfter: 120 },
+  },
+  figureCaption: { size: 18, italic: true, alignment: "center" },
+  tableCaption: { size: 18, italic: true, alignment: "center" },
+});
+
+const doubleSpacedReview = createStyleProfile({
+  ...withoutHash(academicClassic),
+  id: "double-spaced-review",
+  name: "双倍行距审阅",
+  fonts: {
+    defaultFamily: "Times New Roman",
+    headingFamily: "Arial",
+    defaultSize: 26,
+    lineSpacing: 2,
+  },
+  pageLayout: {
+    width: 210,
+    height: 297,
+    marginTop: 30,
+    marginBottom: 30,
+    marginLeft: 32,
+    marginRight: 30,
+  },
+  headings: {
+    h1: { size: 32, bold: true, spacingBefore: 420, spacingAfter: 200 },
+    h2: { size: 28, bold: true, spacingBefore: 320, spacingAfter: 160 },
+    h3: { size: 24, bold: true, spacingBefore: 260, spacingAfter: 120 },
+  },
+  figureCaption: { size: 20, italic: true, alignment: "center" },
+  tableCaption: { size: 20, italic: true, alignment: "center" },
+});
+
 export const builtInStyleProfiles: readonly BuiltInStyleProfile[] = Object.freeze([
   {
     id: academicClassic.id,
@@ -230,6 +338,30 @@ export const builtInStyleProfiles: readonly BuiltInStyleProfile[] = Object.freez
     name: "\u5BBD\u677E\u5BA1\u9605",
     description: "\u5B57\u53F7\u548C\u884C\u8DDD\u66F4\u5927\uFF0C\u4FBF\u4E8E\u6253\u5370\u5BA1\u9605\u4E0E\u6279\u6CE8\u3002",
     profile: airyReview,
+  },
+  {
+    id: journalBlueprint.id,
+    name: "期刊蓝图",
+    description: "蓝色层级标题与较紧页边距，适合技术论文和期刊风格排版。",
+    profile: journalBlueprint,
+  },
+  {
+    id: grantProposal.id,
+    name: "基金申请",
+    description: "绿色标题层级、左对齐图表标题，适合方案书与申请文档。",
+    profile: grantProposal,
+  },
+  {
+    id: bookChapter.id,
+    name: "书章节奏",
+    description: "衬线正文、内侧留白更大，适合长文阅读与章节化内容。",
+    profile: bookChapter,
+  },
+  {
+    id: doubleSpacedReview.id,
+    name: "双倍行距审阅",
+    description: "双倍行距与宽边距，适合教师批改、审稿和打印标注。",
+    profile: doubleSpacedReview,
   },
 ]);
 

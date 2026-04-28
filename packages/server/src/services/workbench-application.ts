@@ -279,6 +279,8 @@ function buildStructuringPrompt(params: { title: string; rawText: string }): str
     "2. Do not output id, version, marks, or inline children.",
     "3. Keep the structure faithful to the source draft.",
     "4. If the structure is unclear, prefer paragraph blocks instead of inventing sections.",
+    "4a. If the draft contains obvious rows/columns, markdown tables, or repeated metric lines, convert them into a table block.",
+    "4b. If the draft contains numbered headings or clear section titles, preserve them as section or heading blocks instead of flattening everything.",
     "5. Do not invent authors, references, figures, years, or institutions that are not present.",
     "6. Keep formulas as LaTeX strings.",
     `7. If the draft has no reliable title, use this fallback title: ${params.title}`,

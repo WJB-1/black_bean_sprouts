@@ -5,7 +5,7 @@ import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import { PrismaClient } from "@prisma/client";
 import { createDocumentRoutes } from "./routes/document/index.js";
-import { agentRoutes } from "./routes/agent/index.js";
+import { createAgentRoutes } from "./routes/agent/index.js";
 import { createAdminRoutes } from "./routes/admin/index.js";
 import { createRenderJobRoutes } from "./routes/render-job/index.js";
 import { createWorkbenchRoutes } from "./routes/workbench/index.js";
@@ -67,7 +67,7 @@ async function start() {
 
   // --- Route registration ---
   await app.register(createDocumentRoutes({ renderService, prisma }), { prefix: "/api/documents" });
-  await app.register(agentRoutes, { prefix: "/api/agent" });
+  await app.register(createAgentRoutes({ prisma }), { prefix: "/api/agent" });
   await app.register(createAdminRoutes({ prisma }), { prefix: "/api/admin" });
   await app.register(createRenderJobRoutes({ renderService }), { prefix: "/api/render-jobs" });
   await app.register(createBillingRoutes({ billingService }), { prefix: "/api/billing" });

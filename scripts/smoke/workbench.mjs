@@ -376,6 +376,8 @@ async function main() {
     const importedDocx = docxImportResponse.json();
     assertOk(importedDocx.sourceType === "docx", "docx import sourceType mismatch");
     assertOk(importedDocx.rawText.length > 40, "docx import returned too little text");
+    assertOk(importedDocx.rawText.includes("Control"), "docx roundtrip lost table cell text", importedDocx.rawText);
+    assertOk(importedDocx.rawText.includes("Enhanced support"), "docx roundtrip lost second table row", importedDocx.rawText);
 
     const expectedFragments = [
       doc.metadata.title,

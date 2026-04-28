@@ -3,6 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { OpenClawAgentRunner, OpenClawRawEvent } from "@black-bean-sprouts/xiaolongxia-kernel";
+import {
+  buildAgentDocumentPrompt,
+  resolveAgentDocumentWorkspacePaths,
+} from "../services/agent-document-workspace.js";
 import { ensureCanonicalOpenClawConfig, type OpenClawConfig } from "./openclaw-config.js";
 
 type OpenClawSessionEntry = {
@@ -609,7 +613,7 @@ async function resolveEphemeralTextSession(params: {
 }
 
 export function createRealOpenClawAgentRunner(): OpenClawAgentRunner {
-  return async ({ message, sessionId, sessionKey, abortSignal, onEvent }) => {
+  return async ({ message, sessionId, sessionKey, documentId, abortSignal, onEvent }) => {
     const runtime = await loadOpenClawRuntime();
     const resolvedSession = await resolveOpenClawSession({
       runtime,
@@ -620,6 +624,21 @@ export function createRealOpenClawAgentRunner(): OpenClawAgentRunner {
     const config = runtime.loadConfig();
     const agentDir = runtime.resolveAgentDir(config, OPENCLAW_AGENT_ID);
     const modelSelection = resolveConfiguredModelSelection(config);
+    const documentWorkspace = documentId
+      ? resolveAgentDocumentWorkspacePaths({
+          documentId,
+          sessionKey: resolvedSession.sessionKey,
+        })
+      : undefined;
+    const workspaceDir = documentWorkspace?.workspaceDir ?? runtime.workspaceDir;
+    const prompt = documentWorkspace
+      ? buildAgentDocumentPrompt({
+          userMessage: message,
+          documentPath: path.basename(documentWorkspace.documentPath),
+          previewPath: path.basename(documentWorkspace.previewPath),
+          instructionsPath: path.basename(documentWorkspace.instructionsPath),
+        })
+      : message;
     let nextSeq = 0;
     let assistantText = "";
     let sawAssistantEvent = false;
@@ -647,12 +666,13 @@ export function createRealOpenClawAgentRunner(): OpenClawAgentRunner {
         trigger: "user",
         senderIsOwner: false,
         sessionFile: resolvedSession.sessionFile,
-        workspaceDir: runtime.workspaceDir,
+        workspaceDir,
         agentDir,
         config,
-        prompt: message,
+        prompt,
         ...(modelSelection.provider ? { provider: modelSelection.provider } : {}),
         ...(modelSelection.model ? { model: modelSelection.model } : {}),
+        toolsAllow: documentWorkspace ? ["read", "write", "edit"] : undefined,
         timeoutMs: getConfiguredTimeoutMs(),
         runId,
         abortSignal,

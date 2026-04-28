@@ -34,6 +34,9 @@ const serverRequire = createRequire(pathToFileURL(serverPackageJsonPath));
 const Fastify = serverRequire("fastify");
 const originalProcessExit = process.exit.bind(process);
 
+loadDotEnvFile(path.join(repoRoot, ".env.example"));
+loadDotEnvFile(path.join(repoRoot, ".env"));
+
 process.exit = ((code = 0) => {
   const error = new Error(`process.exit(${code})`);
   console.error("PROCESS_EXIT", code, error.stack);
@@ -70,6 +73,39 @@ function ensureBuiltArtifact(filePath) {
     return;
   }
   throw new Error(`Missing built artifact at ${filePath}. Build the workspace first.`);
+}
+
+function loadDotEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+
+  for (const rawLine of fs.readFileSync(filePath, "utf8").split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+
+    const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/u.exec(rawLine);
+    if (!match || !match[1]) {
+      continue;
+    }
+
+    const key = match[1];
+    let value = match[2] ?? "";
+    value = value.trim();
+
+    if (value.length >= 2) {
+      const quoted =
+        (value.startsWith("\"") && value.endsWith("\"")) ||
+        (value.startsWith("'") && value.endsWith("'"));
+      if (quoted) {
+        value = value.slice(1, -1);
+      }
+    }
+
+    process.env[key] = value;
+  }
 }
 
 async function loadRuntime() {
