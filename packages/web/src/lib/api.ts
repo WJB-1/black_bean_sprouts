@@ -55,10 +55,16 @@ function readErrorMessage(payload: unknown, fallback: string): string {
 }
 
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(BASE_URL + path, {
-    ...options,
-    headers: buildHeaders(options?.headers),
-  });
+  let response: Response;
+  try {
+    response = await fetch(BASE_URL + path, {
+      ...options,
+      headers: buildHeaders(options?.headers),
+    });
+  } catch (networkError) {
+    const message = networkError instanceof Error ? networkError.message : String(networkError);
+    throw new Error(`网络请求失败: ${message}。请检查后端服务是否已启动 (http://localhost:3000)`);
+  }
 
   const contentType = response.headers.get("Content-Type") ?? "";
   const text = await response.text();
