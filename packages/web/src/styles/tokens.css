@@ -1,47 +1,68 @@
-/* 黑豆芽设计令牌 —— 颜色、字体、间距、阴影 */
+/* ============================================================================
+   黑豆芽设计令牌 v2 — 高端学术/医学AI平台视觉系统
+   灵感：深色奢华 + 玻璃拟态 + 精致排版
+   ============================================================================ */
 
 :root {
-  /* 主色调 */
-  --color-primary: #1f5eff;
-  --color-primary-hover: #1547cc;
-  --color-primary-light: #eef4ff;
-  --color-primary-soft: rgba(31, 94, 255, 0.08);
+  /* === 主色调：深靛蓝 → 紫罗兰渐变 === */
+  --color-primary: #6366f1;
+  --color-primary-light: #818cf8;
+  --color-primary-dark: #4f46e5;
+  --color-primary-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+  --color-primary-soft: rgba(99, 102, 241, 0.08);
+  --color-primary-glow: rgba(99, 102, 241, 0.25);
 
-  /* 语义色 */
-  --color-success: #027a48;
-  --color-success-bg: #ecfdf3;
-  --color-warning: #c2410c;
-  --color-warning-bg: #fff7ed;
-  --color-error: #b42318;
-  --color-error-bg: #fff1f2;
-  --color-info: #1d4ed8;
-  --color-info-bg: #dbeafe;
+  /* === 强调色：翡翠绿（成功）/ 琥珀（警告）/ 玫瑰（错误）=== */
+  --color-success: #10b981;
+  --color-success-bg: rgba(16, 185, 129, 0.1);
+  --color-success-glow: rgba(16, 185, 129, 0.3);
 
-  /* 中性色 */
-  --color-bg: #f5f7fb;
-  --color-surface: #ffffff;
-  --color-surface-elevated: #fafcff;
-  --color-border: #e6ebf2;
-  --color-border-strong: #d5deea;
-  --color-text: #18212f;
-  --color-text-secondary: #4a5665;
-  --color-text-muted: #627286;
-  --color-text-placeholder: #9aa3b2;
+  --color-warning: #f59e0b;
+  --color-warning-bg: rgba(245, 158, 11, 0.1);
 
-  /* 字体 */
-  --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
+  --color-error: #ef4444;
+  --color-error-bg: rgba(239, 68, 68, 0.1);
+  --color-error-glow: rgba(239, 68, 68, 0.3);
 
-  /* 字号 */
-  --text-xs: 12px;
+  --color-info: #3b82f6;
+  --color-info-bg: rgba(59, 130, 246, 0.1);
+
+  /* === 深色主题背景 === */
+  --color-bg: #0f0f1a;
+  --color-bg-elevated: #16162a;
+  --color-bg-card: rgba(22, 22, 42, 0.7);
+  --color-bg-glass: rgba(255, 255, 255, 0.03);
+  --color-bg-glass-hover: rgba(255, 255, 255, 0.06);
+  --color-bg-input: rgba(255, 255, 255, 0.05);
+  --color-bg-input-focus: rgba(255, 255, 255, 0.08);
+
+  /* === 边框 === */
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-strong: rgba(255, 255, 255, 0.1);
+  --color-border-glow: rgba(99, 102, 241, 0.3);
+
+  /* === 文字 === */
+  --color-text: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+  --color-text-placeholder: #475569;
+
+  /* === 字体 === */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Monaco, "Cascadia Code", Consolas, monospace;
+
+  /* === 字号 === */
+  --text-xs: 11px;
   --text-sm: 13px;
   --text-base: 14px;
   --text-md: 15px;
   --text-lg: 18px;
-  --text-xl: 22px;
-  --text-2xl: 28px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 40px;
 
-  /* 间距 */
+  /* === 间距 === */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -50,24 +71,27 @@
   --space-6: 24px;
   --space-8: 32px;
   --space-10: 40px;
+  --space-12: 48px;
 
-  /* 圆角 */
-  --radius-sm: 8px;
-  --radius-md: 12px;
+  /* === 圆角 === */
+  --radius-sm: 6px;
+  --radius-md: 10px;
   --radius-lg: 14px;
-  --radius-xl: 18px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
   --radius-full: 999px;
 
-  /* 阴影 */
-  --shadow-sm: 0 1px 3px rgba(31, 57, 102, 0.04);
-  --shadow-md: 0 4px 16px rgba(31, 57, 102, 0.06);
-  --shadow-lg: 0 12px 40px rgba(31, 57, 102, 0.08);
-  --shadow-xl: 0 20px 60px rgba(31, 57, 102, 0.12);
+  /* === 阴影 === */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 40px rgba(99, 102, 241, 0.15);
+  --shadow-glow-strong: 0 0 60px rgba(99, 102, 241, 0.25);
 
-  /* 动画 */
+  /* === 动画 === */
   --duration-fast: 150ms;
   --duration-normal: 250ms;
-  --duration-slow: 350ms;
+  --duration-slow: 400ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in-out: cubic-bezier(0.45, 0, 0.55, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }

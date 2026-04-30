@@ -1,5 +1,6 @@
 <template>
   <div class="app-root">
+    <DecorativeBg />
     <router-view />
     <AppToast ref="toastRef" />
   </div>
@@ -7,6 +8,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
+import DecorativeBg from "./components/ui/DecorativeBg.vue";
 import AppToast from "./components/ui/AppToast.vue";
 import { registerToast } from "./composables/useToast.js";
 
@@ -22,5 +24,6 @@ onMounted(() => {
 <style>
 .app-root {
   min-height: 100vh;
+  position: relative;
 }
 </style>
