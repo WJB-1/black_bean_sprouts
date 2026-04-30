@@ -1,5 +1,26 @@
 <template>
-  <div class="app">
+  <div class="app-root">
     <router-view />
+    <AppToast ref="toastRef" />
   </div>
 </template>
+
+<script setup lang="ts">
+import { ref, onMounted } from "vue";
+import AppToast from "./components/ui/AppToast.vue";
+import { registerToast } from "./composables/useToast.js";
+
+const toastRef = ref<InstanceType<typeof AppToast>>();
+
+onMounted(() => {
+  if (toastRef.value) {
+    registerToast(toastRef.value);
+  }
+});
+</script>
+
+<style>
+.app-root {
+  min-height: 100vh;
+}
+</style>

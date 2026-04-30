@@ -1,18 +1,23 @@
 <template>
   <div class="workbench-page">
+    <!-- 顶部导航 -->
     <header class="toolbar">
-      <div>
-        <h1 class="logo">黑豆芽文档工作台</h1>
-        <p class="subtitle">把未整理原稿结构化，再按可调排版导出为 DOCX / LaTeX。</p>
+      <div class="toolbar-brand">
+        <div class="logo-icon">🌱</div>
+        <div>
+          <h1 class="logo">黑豆芽</h1>
+          <p class="subtitle">AI 文档结构化工作台</p>
+        </div>
       </div>
       <nav class="toolbar-nav">
-        <router-link to="/workbench">工作台</router-link>
-        <router-link to="/editor/new">编辑器</router-link>
-        <router-link to="/admin">后台</router-link>
+        <router-link to="/workbench" class="nav-link nav-link--active">工作台</router-link>
+        <router-link to="/editor/new" class="nav-link">编辑器</router-link>
+        <router-link to="/admin" class="nav-link">后台</router-link>
       </nav>
     </header>
 
     <main class="layout">
+      <!-- 左侧：输入区 -->
       <section
         class="panel input-panel"
         :class="{ 'panel--dragging': dragActive }"
@@ -21,238 +26,447 @@
         @dragleave.prevent="handleDragLeave"
         @drop.prevent="handleDrop"
       >
-        <div class="panel-header">
-          <h2>原稿输入</h2>
-          <div class="panel-header-actions">
-            <button class="ghost-btn" type="button" @click="loadExampleDraft">载入示例</button>
-            <button class="ghost-btn" type="button" :disabled="!canClear" @click="clearWorkbench">清空</button>
-            <label class="upload-btn">
-              <input
-                type="file"
-                accept=".txt,.text,.md,.markdown,.tex,.csv,.json,.yaml,.yml,.html,.docx"
-                @change="handleFilePick"
-              />
-              导入文本 / DOCX
-            </label>
+        <!-- 模板选择 -->
+        <div class="template-section">
+          <div class="section-header">
+            <h2 class="section-title">📄 选择排版模板</h2>
+            <p class="section-desc">选择适合您文档的模板，AI 将按此规范进行结构化</p>
+          </div>
+          <div class="template-grid">
+            <button
+              v-for="profile in styleProfiles"
+              :key="profile.id"
+              type="button"
+              class="template-card"
+              :class="{ 'template-card--active': exportStyle.styleProfileId === profile.id }"
+              @click="selectTemplate(profile)"
+            >
+              <div class="template-name">{{ profile.name }}</div>
+              <div class="template-desc">{{ profile.description }}</div>
+              <div v-if="exportStyle.styleProfileId === profile.id" class="template-check">✓</div>
+            </button>
           </div>
         </div>
-        <p v-if="draftRecoveryMessage" class="message message--success message--inline">
-          {{ draftRecoveryMessage }}
-        </p>
 
-        <label class="field">
-          <span>候选标题</span>
-          <input v-model="title" class="text-input" placeholder="原稿没有稳定标题时可手动填写" />
-        </label>
+        <!-- 快捷指令胶囊 -->
+        <div class="chips-section">
+          <div class="section-header">
+            <h2 class="section-title">⚡ 快捷指令</h2>
+          </div>
+          <div class="chips-row">
+            <button
+              v-for="chip in actionChips"
+              :key="chip.id"
+              type="button"
+              class="chip"
+              :disabled="!rawText.trim() || generating"
+              @click="runChipAction(chip)"
+            >
+              <span class="chip-icon">{{ chip.icon }}</span>
+              <span>{{ chip.label }}</span>
+            </button>
+          </div>
+        </div>
 
-        <label class="field field--grow">
-          <span>未整理原稿</span>
+        <!-- 拖拽上传区 -->
+        <div
+          class="upload-zone"
+          :class="{ 'upload-zone--active': dragActive, 'upload-zone--has-file': sourceFileName }"
+        >
+          <div class="upload-content">
+            <div class="upload-icon">{{ dragActive ? '📥' : sourceFileName ? '📄' : '📎' }}</div>
+            <div v-if="sourceFileName" class="upload-file-name">{{ sourceFileName }}</div>
+            <div v-else class="upload-text">
+              <strong>拖拽文件到此处</strong>，或
+              <label class="upload-link">
+                <input
+                  type="file"
+                  accept=".txt,.text,.md,.markdown,.tex,.csv,.json,.yaml,.yml,.html,.docx"
+                  @change="handleFilePick"
+                />
+                点击选择文件
+              </label>
+            </div>
+            <div class="upload-hint">支持 .docx、.txt、.md 等格式 · 最大 25MB</div>
+          </div>
+        </div>
+
+        <!-- 恢复提示 -->
+        <Transition name="fade">
+          <div v-if="draftRecoveryMessage" class="recovery-banner">
+            <span class="recovery-icon">💾</span>
+            <span>{{ draftRecoveryMessage }}</span>
+            <button class="recovery-dismiss" type="button" @click="draftRecoveryMessage = ''">×</button>
+          </div>
+        </Transition>
+
+        <!-- 标题输入 -->
+        <div class="field">
+          <label class="field-label">文档标题</label>
+          <input
+            v-model="title"
+            class="input text-input"
+            placeholder="输入文档标题，或留空让 AI 自动提取"
+          />
+        </div>
+
+        <!-- 正文输入 -->
+        <div class="field field--grow">
+          <div class="field-header">
+            <label class="field-label">未整理原稿</label>
+            <div class="field-stats">
+              <span class="stat-badge">{{ rawCharCount.toLocaleString() }} 字</span>
+              <span class="stat-badge">{{ rawParagraphCount }} 段</span>
+            </div>
+          </div>
           <textarea
             v-model="rawText"
-            class="text-area"
-            placeholder="直接粘贴原稿，或拖拽 / 导入 .txt、.md、.tex、.docx 等文件"
+            class="input input--textarea"
+            :class="{ 'input--dragging': dragActive }"
+            placeholder="直接粘贴原稿内容，或从上方导入文件..."
+            :disabled="importing"
           />
-        </label>
-
-        <div class="stats-grid">
-          <div class="stat-card">
-            <span class="stat-label">来源文件</span>
-            <strong class="stat-value">{{ sourceFileName || "手动粘贴" }}</strong>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">字符数</span>
-            <strong class="stat-value">{{ rawCharCount }}</strong>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">段落数</span>
-            <strong class="stat-value">{{ rawParagraphCount }}</strong>
-          </div>
         </div>
 
-        <section class="style-panel">
-          <div class="style-panel-header">
-            <div>
-              <h3>导出排版</h3>
-              <p class="hint hint--tight">预设可选，下面的参数也可继续微调。</p>
-            </div>
-            <button class="ghost-btn" type="button" @click="resetStyleSettings">恢复默认</button>
-          </div>
-
-          <label class="field">
-            <span>排版预设</span>
-            <select v-model="exportStyle.styleProfileId" class="text-input" @change="applySelectedProfileDefaults">
-              <option v-for="profile in styleProfiles" :key="profile.id" :value="profile.id">
-                {{ profile.name }}
-              </option>
-            </select>
-          </label>
-
-          <p class="hint hint--tight">{{ selectedStyleDescription }}</p>
-
+        <!-- 排版参数 -->
+        <details class="style-details">
+          <summary class="style-summary">
+            <span>🎨 排版参数</span>
+            <span class="style-summary-hint">{{ selectedStyleDescription }}</span>
+          </summary>
           <div class="style-grid">
-            <label class="field">
-              <span>正文字号 (pt)</span>
-              <input v-model.number="exportStyle.bodyFontSizePt" class="text-input" type="number" min="8" max="24" step="0.5" />
-            </label>
-            <label class="field">
-              <span>行距</span>
-              <input v-model.number="exportStyle.lineSpacing" class="text-input" type="number" min="1" max="3" step="0.05" />
-            </label>
-            <label class="field">
-              <span>上边距 (mm)</span>
-              <input v-model.number="exportStyle.marginTopMm" class="text-input" type="number" min="5" max="60" step="1" />
-            </label>
-            <label class="field">
-              <span>下边距 (mm)</span>
-              <input v-model.number="exportStyle.marginBottomMm" class="text-input" type="number" min="5" max="60" step="1" />
-            </label>
-            <label class="field">
-              <span>左边距 (mm)</span>
-              <input v-model.number="exportStyle.marginLeftMm" class="text-input" type="number" min="5" max="60" step="1" />
-            </label>
-            <label class="field">
-              <span>右边距 (mm)</span>
-              <input v-model.number="exportStyle.marginRightMm" class="text-input" type="number" min="5" max="60" step="1" />
-            </label>
+            <div class="field field--compact">
+              <label class="field-label">正文字号 (pt)</label>
+              <input
+                v-model.number="exportStyle.bodyFontSizePt"
+                class="input"
+                type="number"
+                min="8"
+                max="24"
+                step="0.5"
+              />
+            </div>
+            <div class="field field--compact">
+              <label class="field-label">行距</label>
+              <input
+                v-model.number="exportStyle.lineSpacing"
+                class="input"
+                type="number"
+                min="1"
+                max="3"
+                step="0.05"
+              />
+            </div>
+            <div class="field field--compact">
+              <label class="field-label">上边距 (mm)</label>
+              <input
+                v-model.number="exportStyle.marginTopMm"
+                class="input"
+                type="number"
+                min="5"
+                max="60"
+              />
+            </div>
+            <div class="field field--compact">
+              <label class="field-label">下边距 (mm)</label>
+              <input
+                v-model.number="exportStyle.marginBottomMm"
+                class="input"
+                type="number"
+                min="5"
+                max="60"
+              />
+            </div>
+            <div class="field field--compact">
+              <label class="field-label">左边距 (mm)</label>
+              <input
+                v-model.number="exportStyle.marginLeftMm"
+                class="input"
+                type="number"
+                min="5"
+                max="60"
+              />
+            </div>
+            <div class="field field--compact">
+              <label class="field-label">右边距 (mm)</label>
+              <input
+                v-model.number="exportStyle.marginRightMm"
+                class="input"
+                type="number"
+                min="5"
+                max="60"
+              />
+            </div>
           </div>
-        </section>
+          <div class="style-actions">
+            <button type="button" class="btn btn--ghost btn--sm" @click="resetStyleSettings">恢复默认</button>
+          </div>
+        </details>
 
-        <div class="actions">
-          <button class="primary-btn" :disabled="generating || !rawText.trim()" @click="generateDocument">
-            {{ generating ? "整理中..." : "一键整理" }}
+        <!-- 操作按钮区 -->
+        <div class="action-bar">
+          <button
+            class="btn btn--primary btn--lg"
+            :disabled="generating || !rawText.trim()"
+            @click="generateDocument"
+          >
+            <span v-if="generating" class="btn-spinner">⏳</span>
+            <span>{{ generating ? generateStepText : '✨ 一键整理' }}</span>
           </button>
-          <button class="secondary-btn" :disabled="!doc || savingToEditor" @click="openInEditor">
-            {{ savingToEditor ? "淇濆瓨涓?.." : "淇濆瓨骞惰繘鍏ョ紪杈戝櫒" }}
-          </button>
-          <button class="secondary-btn" :disabled="!doc || exportingFormat !== null" @click="downloadFile('docx')">
-            {{ exportingFormat === "docx" ? "导出 DOCX..." : "下载 DOCX" }}
-          </button>
-          <button class="secondary-btn" :disabled="!doc || exportingFormat !== null" @click="downloadFile('latex')">
-            {{ exportingFormat === "latex" ? "导出 LaTeX..." : "下载 LaTeX" }}
-          </button>
-          <button class="ghost-btn" :disabled="!doc" @click="copyStructuredJson">复制 JSON</button>
+
+          <div class="action-secondary">
+            <button type="button" class="btn btn--ghost btn--sm" @click="loadExampleDraft">📋 载入示例</button>
+            <button
+              type="button"
+              class="btn btn--ghost btn--sm"
+              :disabled="!canClear"
+              @click="confirmClear"
+            >
+              🗑️ 清空
+            </button>
+          </div>
         </div>
 
-        <label class="download-setting">
-          <input v-model="downloadWithPicker" type="checkbox" @change="persistDownloadPreference" />
-          <span>导出时手动选择保存位置（Chrome / Edge）</span>
-        </label>
-        <p class="hint hint--tight">
-          关闭时文件进入浏览器默认下载目录；开启时每次弹出“另存为”窗口。
-        </p>
-        <p class="hint hint--tight">
-          当前导出方式：{{ downloadWithPicker ? "每次手动选择位置" : "浏览器默认下载目录" }}
-        </p>
-
-        <p v-if="exportMessage" class="message message--success message--inline">{{ exportMessage }}</p>
-        <p class="hint">
-          支持拖拽或导入文本类文件，也支持导入 DOCX 提取正文。若你手里是 PDF，建议先复制正文再整理。
-        </p>
+        <!-- 生成进度条 -->
+        <Transition name="slide-down">
+          <div v-if="generating" class="progress-bar">
+            <div class="progress-track">
+              <div class="progress-fill" :style="{ width: generateProgress + '%' }"></div>
+            </div>
+            <div class="progress-steps">
+              <span
+                v-for="(step, i) in generateSteps"
+                :key="i"
+                class="progress-step"
+                :class="{ 'progress-step--done': i < generateStepIndex, 'progress-step--active': i === generateStepIndex }"
+              >
+                {{ step }}
+              </span>
+            </div>
+          </div>
+        </Transition>
       </section>
 
+      <!-- 右侧：输出区 -->
       <section class="panel output-panel">
         <div class="panel-header">
-          <h2>结构化结果</h2>
-          <span v-if="warning" class="warning-badge">已回退导入</span>
+          <h2 class="section-title">📋 结构化结果</h2>
+          <div class="panel-badges">
+            <span v-if="warning" class="badge badge--warning">已回退导入</span>
+            <span v-if="doc" class="badge badge--success">{{ blockCount }} 块 · {{ sectionCount }} 章节</span>
+          </div>
         </div>
 
-        <section class="recovery-card">
-          <div class="recovery-card-header">
-            <div>
-              <h3>找回最近文档</h3>
-              <p class="hint hint--tight">
-                已保存到系统的文档会显示在这里。当前页面草稿仍会自动保存在本机浏览器。
-              </p>
+        <!-- 空状态 -->
+        <div v-if="!doc && !error && !warning" class="empty-state">
+          <div class="empty-illustration">📄➡️✨</div>
+          <p>在左侧输入原稿并点击"一键整理"</p>
+          <p class="empty-hint">AI 将自动分析文档结构，提取标题、摘要、章节、参考文献等</p>
+        </div>
+
+        <!-- 错误/警告 -->
+        <Transition name="fade">
+          <div v-if="error" class="message message--error">
+            <span class="message-icon">⚠️</span>
+            <span>{{ error }}</span>
+            <button class="message-close" type="button" @click="error = ''">×</button>
+          </div>
+        </Transition>
+
+        <Transition name="fade">
+          <div v-if="warning" class="message message--warning">
+            <span class="message-icon">⚡</span>
+            <span>{{ warning }}</span>
+          </div>
+        </Transition>
+
+        <!-- 成功提示 -->
+        <Transition name="fade">
+          <div v-if="exportMessage" class="message message--success">
+            <span class="message-icon">✓</span>
+            <span>{{ exportMessage }}</span>
+            <button class="message-close" type="button" @click="exportMessage = ''">×</button>
+          </div>
+        </Transition>
+
+        <!-- 文档元信息卡片 -->
+        <Transition name="fade-up">
+          <div v-if="doc" class="doc-card">
+            <div class="doc-header">
+              <h3 class="doc-title">{{ doc.metadata.title || '未命名文档' }}</h3>
+              <div v-if="doc.metadata.subtitle" class="doc-subtitle">{{ doc.metadata.subtitle }}</div>
             </div>
+            <div v-if="doc.metadata.authors?.length" class="doc-meta-row">
+              <span class="doc-meta-label">作者</span>
+              <span>{{ doc.metadata.authors.map(a => a.name).join('、') }}</span>
+            </div>
+            <div v-if="doc.metadata.keywords?.length" class="doc-meta-row">
+              <span class="doc-meta-label">关键词</span>
+              <div class="keyword-list">
+                <span v-for="kw in doc.metadata.keywords" :key="kw" class="keyword-tag">{{ kw }}</span>
+              </div>
+            </div>
+            <div v-if="doc.metadata.institution" class="doc-meta-row">
+              <span class="doc-meta-label">机构</span>
+              <span>{{ doc.metadata.institution }}</span>
+            </div>
+          </div>
+        </Transition>
+
+        <!-- 大纲树 -->
+        <Transition name="fade-up">
+          <div v-if="doc" class="outline-card">
+            <div class="card-header">
+              <h4>🗂️ 文档大纲</h4>
+              <button type="button" class="btn btn--ghost btn--sm" @click="expandAll = !expandAll">
+                {{ expandAll ? '收起' : '展开' }}
+              </button>
+            </div>
+            <div class="outline-tree">
+              <OutlineNode
+                v-for="block in doc.children"
+                :key="block.id"
+                :block="block"
+                :expand-all="expandAll"
+              />
+            </div>
+          </div>
+        </Transition>
+
+        <!-- 排版预览 -->
+        <Transition name="fade-up">
+          <div v-if="doc" class="preview-card">
+            <div class="card-header">
+              <h4>👁️ 排版预览</h4>
+              <span class="preview-hint">模拟 {{ exportStyle.bodyFontSizePt }}pt / {{ exportStyle.lineSpacing }}倍行距</span>
+            </div>
+            <div class="preview-document">
+              <div class="preview-page">
+                <PreviewBlock
+                  v-for="block in doc.children"
+                  :key="block.id"
+                  :block="block"
+                  :style-config="exportStyle"
+                />
+              </div>
+            </div>
+          </div>
+        </Transition>
+
+        <!-- 导出操作 -->
+        <Transition name="fade-up">
+          <div v-if="doc" class="export-card">
+            <div class="card-header">
+              <h4>📥 导出文档</h4>
+            </div>
+            <div class="export-actions">
+              <button
+                class="btn btn--secondary"
+                :disabled="exportingFormat !== null"
+                @click="downloadFile('docx')"
+              >
+                <span>{{ exportingFormat === 'docx' ? '导出中...' : '📄 DOCX' }}</span>
+              </button>
+              <button
+                class="btn btn--secondary"
+                :disabled="exportingFormat !== null"
+                @click="downloadFile('latex')"
+              >
+                <span>{{ exportingFormat === 'latex' ? '导出中...' : '📝 LaTeX' }}</span>
+              </button>
+              <button class="btn btn--ghost" @click="copyStructuredJson">📋 复制 JSON</button>
+            </div>
+            <label class="download-setting">
+              <input v-model="downloadWithPicker" type="checkbox" @change="persistDownloadPreference" />
+              <span>导出时手动选择保存位置</span>
+            </label>
+          </div>
+        </Transition>
+
+        <!-- 保存到编辑器 -->
+        <Transition name="fade-up">
+          <div v-if="doc" class="save-card">
             <button
-              class="ghost-btn ghost-btn--small"
+              class="btn btn--primary"
+              :disabled="savingToEditor"
+              @click="openInEditor"
+            >
+              <span>{{ savingToEditor ? '保存中...' : '💾 保存并进入编辑器' }}</span>
+            </button>
+          </div>
+        </Transition>
+
+        <!-- 调试信息 -->
+        <details v-if="modelOutput" class="debug-card">
+          <summary>🔧 调试：模型原始输出</summary>
+          <pre class="debug-pre">{{ modelOutput }}</pre>
+        </details>
+
+        <details v-if="doc" class="debug-card">
+          <summary>🔧 调试：结构化 JSON</summary>
+          <pre class="debug-pre">{{ prettyDoc }}</pre>
+        </details>
+
+        <!-- 最近文档 -->
+        <div class="recent-card">
+          <div class="card-header">
+            <h4>🕐 最近文档</h4>
+            <button
               type="button"
+              class="btn btn--ghost btn--sm"
               :disabled="recentDocumentsLoading"
               @click="loadRecentDocuments"
             >
-              {{ recentDocumentsLoading ? "刷新中..." : "刷新列表" }}
+              {{ recentDocumentsLoading ? '刷新中...' : '刷新' }}
             </button>
           </div>
 
           <div class="recover-inline">
             <input
               v-model="recoverDocumentId"
-              class="text-input"
-              placeholder="输入文档 ID 直接找回"
+              class="input"
+              placeholder="输入文档 ID 找回"
               @keydown.enter.prevent="openRecoverDocument()"
             />
-            <button class="secondary-btn recent-document-btn" type="button" @click="openRecoverDocument()">
-              打开
-            </button>
+            <button type="button" class="btn btn--secondary btn--sm" @click="openRecoverDocument()">打开</button>
           </div>
 
-          <p v-if="recentDocumentsError" class="message message--warning message--inline">
-            {{ recentDocumentsError }}
-          </p>
-          <div v-else-if="recentDocumentsLoading && recentDocuments.length === 0" class="empty-state">
-            正在加载最近文档...
+          <div v-if="recentDocumentsError" class="message message--warning">{{ recentDocumentsError }}</div>
+
+          <div v-else-if="recentDocuments.length === 0" class="empty-state empty-state--compact">
+            暂无最近文档
           </div>
-          <div v-else-if="recentDocuments.length === 0" class="empty-state">
-            还没有可找回的已保存文档。点击“存为文档并打开编辑器”后，这里就会出现记录。
-          </div>
-          <ul v-else class="recent-document-list">
-            <li v-for="item in recentDocuments" :key="item.id" class="recent-document-item">
-              <div class="recent-document-meta">
-                <strong class="recent-document-title">{{ item.title || "Untitled document" }}</strong>
-                <span class="recent-document-subtitle">ID: {{ item.id }}</span>
-                <span class="recent-document-subtitle">
-                  版本 {{ item.version }} · 更新于 {{ formatRecentDocumentTime(item.updatedAt) }}
-                </span>
+
+          <ul v-else class="recent-list">
+            <li v-for="item in recentDocuments" :key="item.id" class="recent-item">
+              <div class="recent-info">
+                <div class="recent-title">{{ item.title || 'Untitled' }}</div>
+                <div class="recent-meta">版本 {{ item.version }} · {{ formatRecentDocumentTime(item.updatedAt) }}</div>
               </div>
-              <button class="secondary-btn recent-document-btn" type="button" @click="openRecentDocument(item.id)">
-                打开
-              </button>
+              <button type="button" class="btn btn--ghost btn--sm" @click="openRecentDocument(item.id)">打开</button>
             </li>
           </ul>
-        </section>
-
-        <div v-if="error" class="message message--error">{{ error }}</div>
-        <div v-else-if="warning" class="message message--warning">{{ warning }}</div>
-        <div v-else-if="doc" class="message message--success">结构化完成，可以直接导出。</div>
-        <div v-else class="empty-state">右侧会显示整理后的结构预览，以及原始模型输出。</div>
-
-        <template v-if="doc">
-          <div class="metadata-card">
-            <h3>{{ doc.metadata.title }}</h3>
-            <p v-if="doc.metadata.subtitle">{{ doc.metadata.subtitle }}</p>
-            <p v-if="doc.metadata.authors?.length">作者：{{ doc.metadata.authors.map((item) => item.name).join("、") }}</p>
-            <p v-if="doc.metadata.keywords?.length">关键词：{{ doc.metadata.keywords.join("、") }}</p>
-            <p class="meta-foot">{{ blockCount }} 个块 · {{ sectionCount }} 个章节</p>
-          </div>
-
-          <div class="outline-card">
-            <h3>大纲预览</h3>
-            <ul class="outline-list">
-              <li v-for="block in doc.children" :key="block.id">{{ summarizeBlock(block) }}</li>
-            </ul>
-          </div>
-
-          <div class="outline-card">
-            <h3>内容预览</h3>
-            <ul class="preview-list">
-              <li v-for="line in previewLines" :key="line.key" :style="{ paddingLeft: `${line.depth * 18}px` }">
-                {{ line.text }}
-              </li>
-            </ul>
-          </div>
-
-          <details class="details-card">
-            <summary>查看结构化 JSON</summary>
-            <pre>{{ prettyDoc }}</pre>
-          </details>
-        </template>
-
-        <details v-if="modelOutput" class="details-card">
-          <summary>查看模型原始输出</summary>
-          <pre>{{ modelOutput }}</pre>
-        </details>
+        </div>
       </section>
     </main>
+
+    <!-- 确认对话框 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="showConfirmDialog" class="modal-overlay" @click="showConfirmDialog = false">
+          <div class="modal-card" @click.stop
+          >
+            <h3>{{ confirmDialog.title }}</h3>
+            <p>{{ confirmDialog.message }}</p>
+            <div class="modal-actions"
+            >
+              <button type="button" class="btn btn--ghost" @click="showConfirmDialog = false">取消</button>
+              <button type="button" class="btn btn--danger" @click="confirmDialog.onConfirm">确认</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -261,27 +475,23 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { apiFetch } from "../lib/api.js";
 import type { BlockNode, Doc, SectionBlock } from "@black-bean-sprouts/doc-schema";
+import OutlineNode from "../components/workbench/OutlineNode.vue";
+import PreviewBlock from "../components/workbench/PreviewBlock.vue";
+import { useToast } from "../composables/useToast.js";
 
-type PreviewLine = {
-  key: string;
-  text: string;
-  depth: number;
-};
+const toast = useToast();
+
+/* ---------- 类型 ---------- */
+type PreviewLine = { key: string; text: string; depth: number };
 
 type SaveFilePickerHandle = {
-  createWritable(): Promise<{
-    write(data: Blob): Promise<void>;
-    close(): Promise<void>;
-  }>;
+  createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }>;
 };
 
 type PickerWindow = Window & typeof globalThis & {
   showSaveFilePicker?: (options?: {
     suggestedName?: string;
-    types?: Array<{
-      description?: string;
-      accept: Record<string, string[]>;
-    }>;
+    types?: Array<{ description?: string; accept: Record<string, string[]> }>;
   }) => Promise<SaveFilePickerHandle>;
 };
 
@@ -327,6 +537,11 @@ type RecentDocumentSummary = {
   createdAt: string;
 };
 
+type ActionChip = { id: string; icon: string; label: string; prompt: string };
+
+type ConfirmDialog = { title: string; message: string; onConfirm: () => void };
+
+/* ---------- 常量 ---------- */
 const EXAMPLE_TITLE = "示例医学原稿";
 const EXAMPLE_RAW_TEXT = `慢性肾病患者营养支持路径优化研究
 
@@ -359,11 +574,26 @@ const DEFAULT_STYLE: ExportStyleSettings = {
   marginRightMm: 25,
 };
 
+const actionChips: ActionChip[] = [
+  { id: "format", icon: "✨", label: "一键全文排版", prompt: "请对全文进行规范化排版，调整段落间距、标题层级和字体格式。" },
+  { id: "figures", icon: "📊", label: "提取并美化图表", prompt: "请识别文中的表格和图表，优化其格式和排版。" },
+  { id: "refs", icon: "📑", label: "规范化参考文献", prompt: "请检查并规范化参考文献格式，确保引用标注正确。" },
+  { id: "abstract", icon: "📝", label: "检查摘要结构", prompt: "请检查摘要是否包含目的、方法、结果、结论四要素，并给出优化建议。" },
+];
+
+const generateSteps = ["分析文档结构", "提取元数据", "识别章节层级", "生成结构化结果"];
+
+/* ---------- 状态 ---------- */
 const title = ref("");
 const rawText = ref("");
 const sourceFileName = ref("");
 const importing = ref(false);
 const generating = ref(false);
+const generateStepIndex = ref(0);
+const generateStepText = ref("分析文档结构...");
+const generateProgress = ref(0);
+let generateTimer: ReturnType<typeof setInterval> | null = null;
+
 const exportingFormat = ref<"docx" | "latex" | null>(null);
 const savingToEditor = ref(false);
 const dragActive = ref(false);
@@ -373,6 +603,8 @@ const exportMessage = ref("");
 const modelOutput = ref("");
 const doc = ref<Doc | null>(null);
 const styleProfiles = ref<WorkbenchStyleProfile[]>([]);
+const expandAll = ref(true);
+
 const DOWNLOAD_WITH_PICKER_KEY = "bbs.workbench.downloadWithPicker";
 const EXPORT_STYLE_KEY = "bbs.workbench.exportStyle";
 const WORKBENCH_DRAFT_KEY = "bbs.workbench.draft.v1";
@@ -383,8 +615,13 @@ const recentDocuments = ref<RecentDocumentSummary[]>([]);
 const recentDocumentsLoading = ref(false);
 const recentDocumentsError = ref("");
 const recoverDocumentId = ref("");
+
+const showConfirmDialog = ref(false);
+const confirmDialog = ref<ConfirmDialog>({ title: "", message: "", onConfirm: () => {} });
+
 const router = useRouter();
 
+/* ---------- 计算属性 ---------- */
 const prettyDoc = computed(() => (doc.value ? JSON.stringify(doc.value, null, 2) : ""));
 const blockCount = computed(() => countBlocks(doc.value?.children ?? []));
 const sectionCount = computed(() => countSections(doc.value?.children ?? []));
@@ -398,12 +635,12 @@ const canClear = computed(
     Boolean(doc.value) ||
     Boolean(modelOutput.value),
 );
-const previewLines = computed(() => buildPreviewLines(doc.value?.children ?? []));
 const selectedStyleDescription = computed(() => {
   const selected = styleProfiles.value.find((item) => item.id === exportStyle.value.styleProfileId);
   return selected?.description ?? "当前使用自定义导出参数。";
 });
 
+/* ---------- 监听 ---------- */
 watch(
   exportStyle,
   () => {
@@ -420,29 +657,81 @@ watch(
   { deep: true },
 );
 
+/* ---------- 生命周期 ---------- */
 onMounted(() => {
   restoreWorkbenchDraft();
   void loadStyleProfiles();
   void loadRecentDocuments();
 });
 
+/* ---------- 模板选择 ---------- */
+function selectTemplate(profile: WorkbenchStyleProfile) {
+  exportStyle.value = {
+    styleProfileId: profile.id,
+    bodyFontSizePt: profile.defaults.bodyFontSizePt,
+    lineSpacing: profile.defaults.lineSpacing,
+    marginTopMm: profile.defaults.marginTopMm,
+    marginBottomMm: profile.defaults.marginBottomMm,
+    marginLeftMm: profile.defaults.marginLeftMm,
+    marginRightMm: profile.defaults.marginRightMm,
+  };
+}
+
+/* ---------- 快捷指令 ---------- */
+function runChipAction(chip: ActionChip) {
+  if (!rawText.value.trim()) {
+    toast.warning("请先输入原稿内容");
+    return;
+  }
+  // 将 chip 的 prompt 追加到 rawText 中，模拟 AI 处理
+  rawText.value += `\n\n[${chip.label}]\n${chip.prompt}`;
+  toast.info(`已添加「${chip.label}」指令`);
+}
+
+/* ---------- 生成进度动画 ---------- */
+function startGenerateProgress() {
+  generateStepIndex.value = 0;
+  generateProgress.value = 0;
+  generateStepText.value = generateSteps[0] + "...";
+
+  generateTimer = setInterval(() => {
+    generateProgress.value = Math.min(generateProgress.value + Math.random() * 15, 95);
+    if (generateProgress.value > (generateStepIndex.value + 1) * 25) {
+      generateStepIndex.value = Math.min(generateStepIndex.value + 1, generateSteps.length - 1);
+      generateStepText.value = generateSteps[generateStepIndex.value] + "...";
+    }
+  }, 800);
+}
+
+function stopGenerateProgress() {
+  if (generateTimer) {
+    clearInterval(generateTimer);
+    generateTimer = null;
+  }
+  generateProgress.value = 100;
+  generateStepText.value = "完成";
+  setTimeout(() => {
+    generateProgress.value = 0;
+    generateStepIndex.value = 0;
+  }, 500);
+}
+
+/* ---------- API 调用 ---------- */
 async function loadStyleProfiles() {
   try {
-    const profiles = await apiFetch<WorkbenchStyleProfile[]>("/workbench/style-profiles", {
-      method: "GET",
-    });
+    const profiles = await apiFetch<WorkbenchStyleProfile[]>("/workbench/style-profiles", { method: "GET" });
     styleProfiles.value = profiles;
     if (!profiles.some((item) => item.id === exportStyle.value.styleProfileId)) {
-      const fallbackProfile = profiles[0];
-      if (fallbackProfile) {
+      const fallback = profiles[0];
+      if (fallback) {
         exportStyle.value = {
-          styleProfileId: fallbackProfile.id,
-          bodyFontSizePt: fallbackProfile.defaults.bodyFontSizePt,
-          lineSpacing: fallbackProfile.defaults.lineSpacing,
-          marginTopMm: fallbackProfile.defaults.marginTopMm,
-          marginBottomMm: fallbackProfile.defaults.marginBottomMm,
-          marginLeftMm: fallbackProfile.defaults.marginLeftMm,
-          marginRightMm: fallbackProfile.defaults.marginRightMm,
+          styleProfileId: fallback.id,
+          bodyFontSizePt: fallback.defaults.bodyFontSizePt,
+          lineSpacing: fallback.defaults.lineSpacing,
+          marginTopMm: fallback.defaults.marginTopMm,
+          marginBottomMm: fallback.defaults.marginBottomMm,
+          marginLeftMm: fallback.defaults.marginLeftMm,
+          marginRightMm: fallback.defaults.marginRightMm,
         };
       }
     }
@@ -451,14 +740,7 @@ async function loadStyleProfiles() {
       id: "default",
       name: "默认学术版",
       description: "默认学术版式。",
-      defaults: {
-        bodyFontSizePt: DEFAULT_STYLE.bodyFontSizePt,
-        lineSpacing: DEFAULT_STYLE.lineSpacing,
-        marginTopMm: DEFAULT_STYLE.marginTopMm,
-        marginBottomMm: DEFAULT_STYLE.marginBottomMm,
-        marginLeftMm: DEFAULT_STYLE.marginLeftMm,
-        marginRightMm: DEFAULT_STYLE.marginRightMm,
-      },
+      defaults: { ...DEFAULT_STYLE },
     }];
   }
 }
@@ -466,11 +748,8 @@ async function loadStyleProfiles() {
 async function loadRecentDocuments() {
   recentDocumentsLoading.value = true;
   recentDocumentsError.value = "";
-
   try {
-    recentDocuments.value = await apiFetch<RecentDocumentSummary[]>("/documents?limit=12", {
-      method: "GET",
-    });
+    recentDocuments.value = await apiFetch<RecentDocumentSummary[]>("/documents?limit=12", { method: "GET" });
   } catch (cause) {
     recentDocuments.value = [];
     recentDocumentsError.value = cause instanceof Error ? cause.message : "加载最近文档失败。";
@@ -489,6 +768,7 @@ async function generateDocument() {
   error.value = "";
   warning.value = "";
   exportMessage.value = "";
+  startGenerateProgress();
 
   try {
     const response = await apiFetch<{
@@ -498,28 +778,26 @@ async function generateDocument() {
       modelOutput?: string;
     }>("/workbench/generate", {
       method: "POST",
-      body: JSON.stringify({
-        title: title.value,
-        rawText: rawText.value,
-      }),
+      body: JSON.stringify({ title: title.value, rawText: rawText.value }),
     });
 
     doc.value = response.doc;
     warning.value = response.warning ?? "";
     modelOutput.value = response.modelOutput ?? "";
+    toast.success("文档结构化完成！");
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "结构化请求失败。";
     doc.value = null;
     modelOutput.value = "";
+    toast.error(error.value);
   } finally {
+    stopGenerateProgress();
     generating.value = false;
   }
 }
 
 async function downloadFile(format: "docx" | "latex") {
-  if (!doc.value) {
-    return;
-  }
+  if (!doc.value) return;
 
   error.value = "";
   exportMessage.value = "";
@@ -528,14 +806,8 @@ async function downloadFile(format: "docx" | "latex") {
   try {
     const response = await fetch("/api/workbench/export", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        format,
-        doc: doc.value,
-        style: buildExportStylePayload(),
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ format, doc: doc.value, style: buildExportStylePayload() }),
     });
 
     if (!response.ok) {
@@ -544,37 +816,29 @@ async function downloadFile(format: "docx" | "latex") {
     }
 
     const arrayBuffer = await response.arrayBuffer();
-    const blob = new Blob([arrayBuffer], {
-      type: response.headers.get("Content-Type") ?? getMimeType(format),
-    });
+    const blob = new Blob([arrayBuffer], { type: response.headers.get("Content-Type") ?? getMimeType(format) });
     const serverFileName = extractDownloadName(response.headers.get("Content-Disposition"));
     const fileName = serverFileName ?? getDownloadName(format);
     const savedWithPicker = await saveExportBlob(blob, fileName, format);
-    exportMessage.value = savedWithPicker
-      ? `已保存到你刚刚选择的位置：${fileName}`
-      : `已交给浏览器下载：${fileName}`;
+    exportMessage.value = savedWithPicker ? `已保存：${fileName}` : `已下载：${fileName}`;
+    toast.success(exportMessage.value);
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "导出失败。";
+    toast.error(error.value);
   } finally {
     exportingFormat.value = null;
   }
 }
 
 async function openInEditor() {
-  if (!doc.value || savingToEditor.value) {
-    return;
-  }
+  if (!doc.value || savingToEditor.value) return;
 
   error.value = "";
   exportMessage.value = "";
   savingToEditor.value = true;
 
   try {
-    const response = await apiFetch<{
-      id: string;
-      version: number;
-      content: Doc;
-    }>("/documents", {
+    const response = await apiFetch<{ id: string; version: number; content: Doc }>("/documents", {
       method: "POST",
       body: JSON.stringify({
         title: doc.value.metadata.title || title.value,
@@ -582,12 +846,14 @@ async function openInEditor() {
       }),
     });
 
-    exportMessage.value = `宸蹭繚瀛樹负鏂囨。锛岀幇鍦ㄨ烦杞埌缂栬緫鍣?${response.id}`;
+    exportMessage.value = `已保存为文档 ${response.id}`;
     recoverDocumentId.value = response.id;
     void loadRecentDocuments();
+    toast.success("文档已保存");
     await router.push(`/editor/${response.id}`);
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : "淇濆瓨鏂囨。澶辫触銆?";
+    error.value = cause instanceof Error ? cause.message : "保存文档失败。";
+    toast.error(error.value);
   } finally {
     savingToEditor.value = false;
   }
@@ -607,25 +873,17 @@ async function openRecoverDocument(inputId?: string) {
 
   recentDocumentsError.value = "";
   try {
-    await apiFetch<{ id: string; version: number; content: Doc }>(`/documents/${encodeURIComponent(documentId)}`, {
-      method: "GET",
-    });
+    await apiFetch<{ id: string; version: number; content: Doc }>(`/documents/${encodeURIComponent(documentId)}`, { method: "GET" });
     await router.push(`/editor/${documentId}`);
   } catch (cause) {
     recentDocumentsError.value = cause instanceof Error ? cause.message : "打开文档失败。";
+    toast.error(recentDocumentsError.value);
   }
 }
 
+/* ---------- 工具函数 ---------- */
 function buildExportStylePayload() {
-  return {
-    styleProfileId: exportStyle.value.styleProfileId,
-    bodyFontSizePt: exportStyle.value.bodyFontSizePt,
-    lineSpacing: exportStyle.value.lineSpacing,
-    marginTopMm: exportStyle.value.marginTopMm,
-    marginBottomMm: exportStyle.value.marginBottomMm,
-    marginLeftMm: exportStyle.value.marginLeftMm,
-    marginRightMm: exportStyle.value.marginRightMm,
-  };
+  return { ...exportStyle.value };
 }
 
 function resetStyleSettings() {
@@ -634,10 +892,7 @@ function resetStyleSettings() {
 
 function applySelectedProfileDefaults() {
   const selected = styleProfiles.value.find((item) => item.id === exportStyle.value.styleProfileId);
-  if (!selected) {
-    return;
-  }
-
+  if (!selected) return;
   exportStyle.value = {
     styleProfileId: selected.id,
     bodyFontSizePt: selected.defaults.bodyFontSizePt,
@@ -652,17 +907,13 @@ function applySelectedProfileDefaults() {
 function persistDownloadPreference() {
   try {
     window.localStorage.setItem(DOWNLOAD_WITH_PICKER_KEY, downloadWithPicker.value ? "1" : "0");
-  } catch {
-    // ignore storage failures
-  }
+  } catch { /* ignore */ }
 }
 
 function persistStyleSettings() {
   try {
     window.localStorage.setItem(EXPORT_STYLE_KEY, JSON.stringify(exportStyle.value));
-  } catch {
-    // ignore storage failures
-  }
+  } catch { /* ignore */ }
 }
 
 function persistWorkbenchDraft() {
@@ -677,17 +928,13 @@ function persistWorkbenchDraft() {
       savedAt: new Date().toISOString(),
     };
     window.localStorage.setItem(WORKBENCH_DRAFT_KEY, JSON.stringify(draft));
-  } catch {
-    // ignore storage failures
-  }
+  } catch { /* ignore */ }
 }
 
 function restoreWorkbenchDraft() {
   try {
     const raw = window.localStorage.getItem(WORKBENCH_DRAFT_KEY);
-    if (!raw) {
-      return;
-    }
+    if (!raw) return;
 
     const draft = JSON.parse(raw) as StoredWorkbenchDraft;
     title.value = typeof draft.title === "string" ? draft.title : "";
@@ -698,35 +945,41 @@ function restoreWorkbenchDraft() {
     doc.value = isStoredDoc(draft.doc) ? draft.doc : null;
 
     const restoredParts = [
-      rawText.value.trim() ? "鍘熺" : "",
-      doc.value ? "缁撴瀯鍖栫粨鏋?" : "",
+      rawText.value.trim() ? "原稿" : "",
+      doc.value ? "结构化结果" : "",
     ].filter(Boolean);
     if (restoredParts.length > 0) {
       const savedAt = formatDraftTime(draft.savedAt);
       draftRecoveryMessage.value = savedAt
-        ? `宸茶嚜鍔ㄦ仮澶嶄笂娆¤崏绋匡細${restoredParts.join(" / ")}锛堣嚜鍔ㄤ繚瀛樹簬 ${savedAt}锛?`
-        : `宸茶嚜鍔ㄦ仮澶嶄笂娆¤崏绋匡細${restoredParts.join(" / ")}銆?`;
+        ? `已自动恢复上次草稿：${restoredParts.join(" / ")}（${savedAt}）`
+        : `已自动恢复上次草稿：${restoredParts.join(" / ")}`;
     }
-  } catch {
-    // ignore invalid local state
-  }
+  } catch { /* ignore */ }
 }
 
 function clearStoredWorkbenchDraft() {
   try {
     window.localStorage.removeItem(WORKBENCH_DRAFT_KEY);
-  } catch {
-    // ignore storage failures
-  }
+  } catch { /* ignore */ }
 }
 
+function confirmClear() {
+  confirmDialog.value = {
+    title: "确认清空",
+    message: "这将清除所有输入内容和生成结果，且无法撤销。是否继续？",
+    onConfirm: () => {
+      clearWorkbench();
+      showConfirmDialog.value = false;
+    },
+  };
+  showConfirmDialog.value = true;
+}
+
+/* ---------- 文件处理 ---------- */
 async function handleFilePick(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
-  if (!file) {
-    return;
-  }
-
+  if (!file) return;
   await readFileIntoWorkbench(file);
   input.value = "";
 }
@@ -740,9 +993,7 @@ function handleDragLeave(event: DragEvent) {
 async function handleDrop(event: DragEvent) {
   dragActive.value = false;
   const file = event.dataTransfer?.files?.[0];
-  if (!file) {
-    return;
-  }
+  if (!file) return;
   await readFileIntoWorkbench(file);
 }
 
@@ -754,16 +1005,9 @@ async function readFileIntoWorkbench(file: File) {
   try {
     if (isDocxFile(file.name)) {
       const contentBase64 = arrayBufferToBase64(await file.arrayBuffer());
-      const response = await apiFetch<{
-        rawText: string;
-        title?: string;
-        sourceType: "docx" | "text";
-      }>("/workbench/import", {
+      const response = await apiFetch<{ rawText: string; title?: string; sourceType: "docx" | "text" }>("/workbench/import", {
         method: "POST",
-        body: JSON.stringify({
-          fileName: file.name,
-          contentBase64,
-        }),
+        body: JSON.stringify({ fileName: file.name, contentBase64 }),
       });
       rawText.value = response.rawText;
       if (!title.value.trim()) {
@@ -775,10 +1019,11 @@ async function readFileIntoWorkbench(file: File) {
         title.value = file.name.replace(/\.[^.]+$/u, "");
       }
     }
-
     sourceFileName.value = file.name;
+    toast.success(`已导入：${file.name}`);
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "文件导入失败。";
+    toast.error(error.value);
   } finally {
     importing.value = false;
   }
@@ -791,6 +1036,7 @@ function loadExampleDraft() {
   error.value = "";
   warning.value = "";
   exportMessage.value = "";
+  toast.info("已载入示例文稿");
 }
 
 function clearWorkbench() {
@@ -804,21 +1050,21 @@ function clearWorkbench() {
   doc.value = null;
   draftRecoveryMessage.value = "";
   clearStoredWorkbenchDraft();
+  toast.info("已清空工作台");
 }
 
 async function copyStructuredJson() {
-  if (!doc.value) {
-    return;
-  }
-
+  if (!doc.value) return;
   try {
     await navigator.clipboard.writeText(prettyDoc.value);
-    exportMessage.value = "结构化 JSON 已复制到剪贴板。";
+    toast.success("结构化 JSON 已复制到剪贴板");
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "复制 JSON 失败。";
+    toast.error(error.value);
   }
 }
 
+/* ---------- 下载 ---------- */
 function getDownloadName(format: "docx" | "latex"): string {
   const base = sanitizeFileName(doc.value?.metadata.title || title.value || "document");
   return format === "docx" ? `${base}.docx` : `${base}.tex`;
@@ -830,55 +1076,15 @@ function getMimeType(format: "docx" | "latex"): string {
     : "application/x-tex; charset=utf-8";
 }
 
-function loadStoredBoolean(key: string, fallback: boolean): boolean {
-  try {
-    const value = window.localStorage.getItem(key);
-    if (value === "1") {
-      return true;
-    }
-    if (value === "0") {
-      return false;
-    }
-  } catch {
-    // ignore storage failures
-  }
-  return fallback;
-}
-
-function loadStoredStyleSettings(): ExportStyleSettings {
-  try {
-    const raw = window.localStorage.getItem(EXPORT_STYLE_KEY);
-    if (!raw) {
-      return { ...DEFAULT_STYLE };
-    }
-    const parsed = JSON.parse(raw) as Partial<ExportStyleSettings>;
-    return {
-      styleProfileId: typeof parsed.styleProfileId === "string" ? parsed.styleProfileId : DEFAULT_STYLE.styleProfileId,
-      bodyFontSizePt: toNumber(parsed.bodyFontSizePt, DEFAULT_STYLE.bodyFontSizePt),
-      lineSpacing: toNumber(parsed.lineSpacing, DEFAULT_STYLE.lineSpacing),
-      marginTopMm: toNumber(parsed.marginTopMm, DEFAULT_STYLE.marginTopMm),
-      marginBottomMm: toNumber(parsed.marginBottomMm, DEFAULT_STYLE.marginBottomMm),
-      marginLeftMm: toNumber(parsed.marginLeftMm, DEFAULT_STYLE.marginLeftMm),
-      marginRightMm: toNumber(parsed.marginRightMm, DEFAULT_STYLE.marginRightMm),
-    };
-  } catch {
-    return { ...DEFAULT_STYLE };
-  }
-}
-
 async function saveExportBlob(blob: Blob, fileName: string, format: "docx" | "latex"): Promise<boolean> {
   const pickerWindow = window as PickerWindow;
   if (downloadWithPicker.value && pickerWindow.showSaveFilePicker) {
     const handle = await pickerWindow.showSaveFilePicker({
       suggestedName: fileName,
-      types: [
-        {
-          description: format === "docx" ? "Word Document" : "LaTeX File",
-          accept: {
-            [getMimeType(format)]: [format === "docx" ? ".docx" : ".tex"],
-          },
-        },
-      ],
+      types: [{
+        description: format === "docx" ? "Word Document" : "LaTeX File",
+        accept: { [getMimeType(format)]: [format === "docx" ? ".docx" : ".tex"] },
+      }],
     });
     const writable = await handle.createWritable();
     await writable.write(blob);
@@ -897,171 +1103,66 @@ async function saveExportBlob(blob: Blob, fileName: string, format: "docx" | "la
   return false;
 }
 
-function summarizeBlock(block: BlockNode): string {
-  switch (block.type) {
-    case "paragraph":
-      return `段落：${inlineText(block.children).slice(0, 80)}`;
-    case "heading":
-      return `标题 H${block.level}：${inlineText(block.children).slice(0, 80)}`;
-    case "section":
-      return `章节：${block.title}（${block.children.length} 个子块）`;
-    case "abstract":
-      return `摘要：${block.children.length} 段`;
-    case "formula":
-      return `公式：${block.latex.slice(0, 80)}`;
-    case "table":
-      return `表格：${block.rows.length} 行`;
-    case "figure":
-      return `图片：${block.alt || block.src}`;
-    case "reference-list":
-      return `参考文献：${block.items.length} 条`;
+/* ---------- 纯函数工具 ---------- */
+function loadStoredBoolean(key: string, fallback: boolean): boolean {
+  try {
+    const value = window.localStorage.getItem(key);
+    if (value === "1") return true;
+    if (value === "0") return false;
+  } catch { /* ignore */ }
+  return fallback;
+}
+
+function loadStoredStyleSettings(): ExportStyleSettings {
+  try {
+    const raw = window.localStorage.getItem(EXPORT_STYLE_KEY);
+    if (!raw) return { ...DEFAULT_STYLE };
+    const parsed = JSON.parse(raw) as Partial<ExportStyleSettings>;
+    return {
+      styleProfileId: typeof parsed.styleProfileId === "string" ? parsed.styleProfileId : DEFAULT_STYLE.styleProfileId,
+      bodyFontSizePt: toNumber(parsed.bodyFontSizePt, DEFAULT_STYLE.bodyFontSizePt),
+      lineSpacing: toNumber(parsed.lineSpacing, DEFAULT_STYLE.lineSpacing),
+      marginTopMm: toNumber(parsed.marginTopMm, DEFAULT_STYLE.marginTopMm),
+      marginBottomMm: toNumber(parsed.marginBottomMm, DEFAULT_STYLE.marginBottomMm),
+      marginLeftMm: toNumber(parsed.marginLeftMm, DEFAULT_STYLE.marginLeftMm),
+      marginRightMm: toNumber(parsed.marginRightMm, DEFAULT_STYLE.marginRightMm),
+    };
+  } catch {
+    return { ...DEFAULT_STYLE };
   }
 }
 
-function buildPreviewLines(blocks: readonly BlockNode[], depth = 0): PreviewLine[] {
-  return blocks.flatMap((block) => {
-    switch (block.type) {
-      case "paragraph":
-        return [{
-          key: block.id,
-          depth,
-          text: `段落：${truncateText(inlineText(block.children), 120)}`,
-        }];
-      case "heading":
-        return [{
-          key: block.id,
-          depth,
-          text: `标题 H${block.level}：${truncateText(inlineText(block.children), 120)}`,
-        }];
-      case "section":
-        return [
-          {
-            key: block.id,
-            depth,
-            text: `章节：${block.title}`,
-          },
-          ...buildPreviewLines(block.children, depth + 1),
-        ];
-      case "abstract":
-        return [
-          {
-            key: block.id,
-            depth,
-            text: "摘要",
-          },
-          ...block.children.map((paragraph, index) => ({
-            key: `${block.id}-abs-${index}`,
-            depth: depth + 1,
-            text: `摘要段：${truncateText(inlineText(paragraph.children), 120)}`,
-          })),
-        ];
-      case "formula":
-        return [{
-          key: block.id,
-          depth,
-          text: `公式：${truncateText(block.latex, 120)}`,
-        }];
-      case "table":
-        return [{
-          key: block.id,
-          depth,
-          text: `表格：${tableColumnCount(block)} 列 / ${block.rows.length} 行`,
-        }];
-      case "figure":
-        return [{
-          key: block.id,
-          depth,
-          text: `图片：${block.alt || block.src}`,
-        }];
-      case "reference-list":
-        return [
-          {
-            key: block.id,
-            depth,
-            text: `参考文献：${block.items.length} 条`,
-          },
-          ...block.items.map((item, index) => ({
-            key: `${block.id}-ref-${index}`,
-            depth: depth + 1,
-            text: `${item.key} · ${item.title}`,
-          })),
-        ];
-    }
-  });
+function toNumber(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function inlineText(children: readonly { type: string; text?: string; latex?: string }[]): string {
-  return children
-    .map((item) => {
-      if (item.type === "text") {
-        return item.text ?? "";
-      }
-      if (item.type === "formula-inline") {
-        return item.latex ?? "";
-      }
-      if (item.type === "hardBreak") {
-        return " / ";
-      }
-      return "";
-    })
-    .join("")
-    .trim();
+function formatDraftTime(value: string | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString();
 }
 
-function tableColumnCount(block: Extract<BlockNode, { type: "table" }>): number {
-  return Math.max(0, block.headerRow?.cells.length ?? 0, ...block.rows.map((row) => row.cells.length));
-}
-
-function splitRawTextIntoParagraphs(value: string): string[] {
-  return value
-    .replace(/\r\n/g, "\n")
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.trim())
-    .filter((paragraph) => paragraph.length > 0);
-}
-
-function truncateText(value: string, maxLength: number): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
-}
-
-function countBlocks(blocks: readonly BlockNode[]): number {
-  return blocks.reduce((total, block) => {
-    if (block.type === "section") {
-      return total + 1 + countBlocks(block.children);
-    }
-    return total + 1;
-  }, 0);
-}
-
-function countSections(blocks: readonly BlockNode[]): number {
-  return blocks.reduce((total, block) => {
-    if (block.type !== "section") {
-      return total;
-    }
-    return total + 1 + countSections((block as SectionBlock).children);
-  }, 0);
+function formatRecentDocumentTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
 function sanitizeFileName(value: string): string {
   return value
     .trim()
     .normalize("NFC")
-    .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, "-")
+    .replace(/[<>:"/\\|?* -]+/g, "-")
     .replace(/\s+/g, " ")
     .trim() || "document";
 }
 
 function extractDownloadName(contentDisposition: string | null): string | undefined {
-  if (!contentDisposition) {
-    return undefined;
-  }
+  if (!contentDisposition) return undefined;
   const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
   if (utf8Match?.[1]) {
-    try {
-      return decodeURIComponent(utf8Match[1]);
-    } catch {
-      return utf8Match[1];
-    }
+    try { return decodeURIComponent(utf8Match[1]); } catch { return utf8Match[1]; }
   }
   const basicMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
   return basicMatch?.[1];
@@ -1075,40 +1176,36 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   const chunkSize = 0x8000;
   let binary = "";
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    const chunk = bytes.subarray(index, index + chunkSize);
-    binary += String.fromCharCode(...chunk);
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
   }
   return btoa(binary);
 }
 
-function toNumber(value: number | undefined, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+function countBlocks(blocks: readonly BlockNode[]): number {
+  return blocks.reduce((total, block) => {
+    if (block.type === "section") return total + 1 + countBlocks(block.children);
+    return total + 1;
+  }, 0);
 }
 
-function formatDraftTime(value: string | undefined): string {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return date.toLocaleString();
+function countSections(blocks: readonly BlockNode[]): number {
+  return blocks.reduce((total, block) => {
+    if (block.type !== "section") return total;
+    return total + 1 + countSections((block as SectionBlock).children);
+  }, 0);
 }
 
-function formatRecentDocumentTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString();
+function splitRawTextIntoParagraphs(value: string): string[] {
+  return value
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
 }
 
 function isStoredDoc(value: unknown): value is Doc {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const candidate = value as Partial<Doc>;
   return (
     typeof candidate.version === "number" &&
@@ -1120,454 +1217,865 @@ function isStoredDoc(value: unknown): value is Doc {
 </script>
 
 <style scoped>
+/* ===== 页面布局 ===== */
 .workbench-page {
   min-height: 100vh;
-  background: #f5f7fb;
-  color: #18212f;
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
 }
 
+/* ===== 顶部导航 ===== */
 .toolbar {
   display: flex;
   justify-content: space-between;
-  gap: 24px;
-  align-items: flex-start;
-  padding: 24px 32px 18px;
-  background: #ffffff;
-  border-bottom: 1px solid #e6ebf2;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.toolbar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.logo-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--color-primary), #6366f1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
 }
 
 .logo {
   margin: 0;
-  font-size: 28px;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--color-text);
 }
 
 .subtitle {
-  margin: 8px 0 0;
-  color: #5f6b7a;
-  font-size: 14px;
+  margin: 2px 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
 }
 
 .toolbar-nav {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  gap: var(--space-1);
 }
 
-.toolbar-nav a {
-  padding: 10px 14px;
-  border-radius: 10px;
+.nav-link {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
   text-decoration: none;
-  color: #35507a;
-  background: #eef4ff;
-  font-size: 14px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
-.toolbar-nav a.router-link-active {
-  background: #1f5eff;
+.nav-link:hover {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+.nav-link--active,
+.nav-link.router-link-active {
+  background: var(--color-primary);
   color: #fff;
 }
 
+/* ===== 主布局 ===== */
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  gap: 24px;
-  padding: 24px 32px 32px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 480px);
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-6) var(--space-8);
+  max-width: 1440px;
+  margin: 0 auto;
 }
 
 .panel {
-  background: #fff;
-  border: 1px solid #e6ebf2;
-  border-radius: 18px;
-  padding: 20px;
-  box-shadow: 0 12px 40px rgba(31, 57, 102, 0.06);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
 }
 
 .panel--dragging {
-  border-color: #1f5eff;
+  border-color: var(--color-primary);
   box-shadow: 0 0 0 3px rgba(31, 94, 255, 0.12);
+}
+
+/* ===== 左侧输入区 ===== */
+.input-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.section-header {
+  margin-bottom: var(--space-3);
+}
+
+.section-title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.section-desc {
+  margin: 4px 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+/* 模板选择 */
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-3);
+}
+
+.template-card {
+  position: relative;
+  padding: var(--space-4);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.template-card:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.template-card--active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.template-name {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  margin-bottom: 4px;
+}
+
+.template-desc {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.template-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* 快捷指令 */
+.chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 8px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  transform: translateY(-1px);
+}
+
+.chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chip-icon {
+  font-size: 14px;
+}
+
+/* 拖拽上传区 */
+.upload-zone {
+  border: 2px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  text-align: center;
+  transition: all var(--duration-fast) var(--ease-out);
+  background: var(--color-surface-elevated);
+}
+
+.upload-zone--active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.upload-zone--has-file {
+  border-color: var(--color-success);
+  background: var(--color-success-bg);
+}
+
+.upload-icon {
+  font-size: 32px;
+  margin-bottom: var(--space-2);
+}
+
+.upload-file-name {
+  font-weight: 600;
+  color: var(--color-success);
+}
+
+.upload-text {
+  color: var(--color-text-secondary);
+}
+
+.upload-link {
+  color: var(--color-primary);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.upload-link input {
+  display: none;
+}
+
+.upload-hint {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* 恢复提示 */
+.recovery-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-info-bg);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  color: var(--color-info);
+}
+
+.recovery-icon {
+  font-size: 16px;
+}
+
+.recovery-dismiss {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: 16px;
+}
+
+.recovery-dismiss:hover {
+  background: rgba(0,0,0,0.05);
+}
+
+/* 表单字段 */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.field--grow {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.field-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.field-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.field-stats {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.stat-badge {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-elevated);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.text-input {
+  font-size: var(--text-md);
+  font-weight: 500;
+}
+
+.input--textarea {
+  flex: 1;
+  min-height: 280px;
+  font-size: var(--text-base);
+  line-height: 1.8;
+}
+
+.input--dragging {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+/* 排版参数 */
+.style-details {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.style-summary {
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--color-surface-elevated);
+  user-select: none;
+}
+
+.style-summary-hint {
+  font-weight: 400;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.style-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.field--compact {
+  margin: 0;
+}
+
+.field--compact .field-label {
+  font-size: var(--text-xs);
+}
+
+.field--compact .input {
+  padding: 8px 10px;
+  font-size: var(--text-sm);
+}
+
+.style-actions {
+  padding: 0 var(--space-4) var(--space-3);
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 操作栏 */
+.action-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: stretch;
+}
+
+.action-secondary {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: center;
+}
+
+.btn-spinner {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 进度条 */
+.progress-bar {
+  padding: var(--space-3);
+  background: var(--color-surface-elevated);
+  border-radius: var(--radius-lg);
+}
+
+.progress-track {
+  height: 6px;
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-bottom: var(--space-2);
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-primary), #6366f1);
+  border-radius: var(--radius-full);
+  transition: width 0.3s var(--ease-out);
+}
+
+.progress-steps {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-xs);
+}
+
+.progress-step {
+  color: var(--color-text-muted);
+  transition: color var(--duration-fast);
+}
+
+.progress-step--active {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.progress-step--done {
+  color: var(--color-success);
+}
+
+/* ===== 右侧输出区 ===== */
+.output-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  position: sticky;
+  top: 80px;
 }
 
 .panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--space-3);
 }
 
-.panel-header-actions {
+.panel-badges {
   display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
-.panel-header h2,
-.style-panel h3,
-.outline-card h3,
-.metadata-card h3 {
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-10) var(--space-5);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.empty-illustration {
+  font-size: 48px;
+  margin-bottom: var(--space-4);
+  opacity: 0.6;
+}
+
+.empty-hint {
+  font-size: var(--text-sm);
+  margin-top: var(--space-2);
+}
+
+.empty-state--compact {
+  padding: var(--space-5);
+}
+
+/* 消息 */
+.message {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+}
+
+.message-icon {
+  flex-shrink: 0;
+}
+
+.message-close {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  opacity: 0.6;
+  font-size: 16px;
+}
+
+.message-close:hover {
+  opacity: 1;
+  background: rgba(0,0,0,0.05);
+}
+
+/* 文档卡片 */
+.doc-card {
+  background: linear-gradient(135deg, var(--color-primary-light), var(--color-surface));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+
+.doc-header {
+  margin-bottom: var(--space-3);
+}
+
+.doc-title {
   margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
 }
 
-.input-panel {
+.doc-subtitle {
+  margin-top: 4px;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.doc-meta-row {
   display: flex;
-  flex-direction: column;
-  min-height: 720px;
+  gap: var(--space-2);
+  align-items: flex-start;
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
 }
 
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.field span {
-  font-size: 13px;
-  color: #4a5665;
+.doc-meta-label {
+  flex-shrink: 0;
   font-weight: 600;
+  color: var(--color-text-secondary);
+  min-width: 48px;
 }
 
-.field--grow {
-  flex: 1;
+.keyword-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
 }
 
-.text-input,
-.text-area,
-select.text-input {
-  border: 1px solid #d5deea;
-  border-radius: 12px;
-  padding: 12px 14px;
-  font-size: 14px;
-  line-height: 1.6;
-  outline: none;
-  transition: border-color 0.15s ease;
-  background: #fff;
+.keyword-tag {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+  font-weight: 500;
 }
 
-.text-input:focus,
-.text-area:focus {
-  border-color: #1f5eff;
+/* 大纲卡片 */
+.outline-card,
+.preview-card,
+.export-card,
+.save-card,
+.recent-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  background: var(--color-surface);
 }
 
-.text-area {
-  min-height: 360px;
-  resize: vertical;
-  flex: 1;
-}
-
-.style-panel {
-  margin-bottom: 16px;
-  padding: 16px;
-  border: 1px solid #e6ebf2;
-  border-radius: 14px;
-  background: #fafcff;
-}
-
-.style-panel-header {
+.card-header {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
+  align-items: center;
+  margin-bottom: var(--space-3);
 }
 
-.style-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.actions {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.primary-btn,
-.secondary-btn,
-.upload-btn,
-.ghost-btn {
-  border: none;
-  border-radius: 12px;
-  padding: 12px 16px;
-  cursor: pointer;
-  font-size: 14px;
+.card-header h4 {
+  margin: 0;
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 
-.primary-btn {
-  background: #1f5eff;
-  color: #fff;
+.outline-tree {
+  font-size: var(--text-sm);
 }
 
-.secondary-btn,
-.upload-btn,
-.ghost-btn {
-  background: #edf2fb;
-  color: #244061;
+/* 排版预览 */
+.preview-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
 }
 
-.primary-btn:disabled,
-.secondary-btn:disabled,
-.ghost-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.preview-document {
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
 }
 
-.upload-btn {
-  position: relative;
-  overflow: hidden;
+.preview-page {
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
+  min-height: 200px;
 }
 
-.upload-btn input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.stat-card {
-  border: 1px solid #e6ebf2;
-  border-radius: 12px;
-  background: #f8fbff;
-  padding: 12px 14px;
+/* 导出 */
+.export-actions {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: #607086;
-}
-
-.stat-value {
-  font-size: 14px;
-  color: #18212f;
-  word-break: break-word;
-}
-
-.hint {
-  margin: 14px 0 0;
-  font-size: 13px;
-  color: #627286;
-}
-
-.hint--tight {
-  margin-top: 8px;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .download-setting {
-  margin-top: 12px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: #42536a;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
 }
 
-.download-setting input {
+/* 保存 */
+.save-card {
+  text-align: center;
+}
+
+/* 最近文档 */
+.recent-list {
   margin: 0;
-}
-
-.output-panel {
+  padding: 0;
+  list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-2);
 }
 
-.recovery-card {
-  border: 1px solid #e6ebf2;
-  border-radius: 14px;
-  padding: 16px;
-  background: #fafcff;
-}
-
-.recovery-card-header {
+.recent-item {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-elevated);
+  transition: background var(--duration-fast);
 }
 
-.recovery-card-header h3 {
-  margin: 0;
+.recent-item:hover {
+  background: var(--color-primary-light);
 }
 
-.ghost-btn--small {
-  padding: 10px 12px;
+.recent-info {
+  min-width: 0;
+}
+
+.recent-title {
+  font-weight: 500;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
 }
 
 .recover-inline {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  margin-top: 12px;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
-.recent-document-list {
-  margin: 14px 0 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+/* 调试 */
+.debug-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  font-size: var(--text-sm);
 }
 
-.recent-document-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 12px 14px;
-  border: 1px solid #e6ebf2;
-  border-radius: 12px;
-  background: #ffffff;
-}
-
-.recent-document-meta {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.recent-document-title {
-  color: #18212f;
-  word-break: break-word;
-}
-
-.recent-document-subtitle {
-  font-size: 12px;
-  color: #627286;
-  word-break: break-all;
-}
-
-.recent-document-btn {
-  white-space: nowrap;
-}
-
-.empty-state,
-.message {
-  border-radius: 14px;
-  padding: 14px 16px;
-  font-size: 14px;
-}
-
-.empty-state {
-  background: #f6f8fb;
-  color: #637385;
-}
-
-.message--error {
-  background: #fff1f2;
-  color: #b42318;
-}
-
-.message--warning {
-  background: #fff7ed;
-  color: #c2410c;
-}
-
-.message--success {
-  background: #ecfdf3;
-  color: #027a48;
-}
-
-.message--inline {
-  margin: 12px 0 0;
-}
-
-.warning-badge {
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #fff2e2;
-  color: #c25b00;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.metadata-card,
-.outline-card,
-.details-card {
-  border: 1px solid #e6ebf2;
-  border-radius: 14px;
-  padding: 16px;
-  background: #fafcff;
-}
-
-.metadata-card p,
-.meta-foot {
-  margin: 8px 0 0;
-  color: #5f6b7a;
-  font-size: 14px;
-}
-
-.outline-list {
-  margin: 12px 0 0;
-  padding-left: 18px;
-  color: #344256;
-}
-
-.outline-list li + li,
-.preview-list li + li {
-  margin-top: 8px;
-}
-
-.preview-list {
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-  color: #344256;
-}
-
-.details-card summary {
+.debug-card summary {
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 600;
+  color: var(--color-text-muted);
 }
 
-.details-card pre {
-  margin: 14px 0 0;
-  max-height: 320px;
+.debug-pre {
+  margin: var(--space-3) 0 0;
+  max-height: 240px;
   overflow: auto;
-  background: #101828;
-  color: #d0d5dd;
-  border-radius: 12px;
-  padding: 14px;
-  font-size: 12px;
+  background: #0f172a;
+  color: #dbeafe;
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  font-size: var(--text-xs);
   line-height: 1.6;
 }
 
-@media (max-width: 1080px) {
+/* 确认对话框 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-5);
+}
+
+.modal-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  max-width: 400px;
+  width: 100%;
+  box-shadow: var(--shadow-xl);
+}
+
+.modal-card h3 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
+}
+
+.modal-card p {
+  margin: 0 0 var(--space-5);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
+/* 过渡动画 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.fade-up-enter-active,
+.fade-up-leave-active {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fade-up-enter-from,
+.fade-up-leave-to {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.slide-down-enter-active,
+.slide-down-leave-active {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slide-down-enter-from,
+.slide-down-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* 响应式 */
+@media (max-width: 1024px) {
   .layout {
     grid-template-columns: 1fr;
   }
 
-  .toolbar {
-    flex-direction: column;
+  .output-panel {
+    max-height: none;
+    position: static;
   }
 
-  .stats-grid,
+  .style-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
+
+  .template-grid {
+    grid-template-columns: 1fr;
+  }
+
   .style-grid {
     grid-template-columns: 1fr;
   }
 
-  .recover-inline,
-  .recent-document-item {
-    display: grid;
-    grid-template-columns: 1fr;
+  .chips-row {
+    justify-content: center;
   }
 }
 </style>
