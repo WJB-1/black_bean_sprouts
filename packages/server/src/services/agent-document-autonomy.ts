@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isValidDoc, type BlockNode, type Doc } from "@black-bean-sprouts/doc-schema";
+import { runClaudeCodeTextPrompt } from "../integration/claude-code-runtime.js";
 import { runOpenClawTextPrompt } from "../integration/openclaw-runtime.js";
 import { runSiliconFlowTextPrompt } from "../integration/siliconflow-runtime.js";
 import {
@@ -31,7 +32,7 @@ type ParseDocResult = {
 
 type PromptResult = {
   readonly text: string;
-  readonly provider: "openclaw" | "siliconflow-direct";
+  readonly provider: "claude-code" | "openclaw" | "siliconflow-direct";
   readonly fallbackReason?: string;
 };
 
@@ -209,13 +210,22 @@ async function runDocumentPrompt(params: {
   }
 
   try {
-    const text = await runOpenClawTextPrompt({
-      message: params.message,
-      sessionKey: params.sessionKey,
-    });
+    const text =
+      process.env.AGENT_DOCUMENT_AUTONOMY_PROVIDER?.trim().toLowerCase() === "openclaw"
+        ? await runOpenClawTextPrompt({
+            message: params.message,
+            sessionKey: params.sessionKey,
+          })
+        : await runClaudeCodeTextPrompt({
+            message: params.message,
+            sessionKey: params.sessionKey,
+          });
     return {
       text,
-      provider: "openclaw",
+      provider:
+        process.env.AGENT_DOCUMENT_AUTONOMY_PROVIDER?.trim().toLowerCase() === "openclaw"
+          ? "openclaw"
+          : "claude-code",
     };
   } catch (error) {
     const text = await runSiliconFlowTextPrompt({
@@ -234,7 +244,7 @@ function shouldUseDirectDocumentAutonomy(): boolean {
   if (explicit === "siliconflow-direct") {
     return true;
   }
-  if (explicit === "openclaw") {
+  if (explicit === "openclaw" || explicit === "claude-code") {
     return false;
   }
 

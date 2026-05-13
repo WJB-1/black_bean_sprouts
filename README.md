@@ -60,38 +60,54 @@ black-bean-sprouts/
 
 ### 前置要求
 
-- **Node.js** >= 20.0.0（推荐 24.14.0）
-- **pnpm** >= 9.0.0
-- **Docker Desktop**（用于本地数据库/缓存/存储）
+- **Node.js** >= 20.0.0（推荐 22+）
+- **Corepack**（Node 自带；本仓库通过 `packageManager` 固定 pnpm）
+- Docker 只用于可选的本地 Postgres / Redis / MinIO，不是 AI/Claude 开发链路的必需项。
 
-### 1. 安装依赖
+### 1. 首次本地初始化
 
 ```bash
-pnpm install
-pnpm db:generate
+corepack enable
+npm run setup:local
 ```
 
-### 2. 启动本地基础设施
+这个脚本会自动完成：
+
+- 按锁文件安装 workspace 依赖。
+- 把 Prisma engine cache 限制在仓库 `.tmp/` 下。
+- 把 Claude Code npm 程序安装到仓库 `.claude-runtime/` 下。
+- 生成 Prisma client。
+
+不会写入系统级 Claude 配置，也不会修改全局 npm/pnpm 配置。
+
+### 2. 配置 AI API
 
 ```bash
-docker compose up -d postgres redis minio
+cp .env.example .env
+```
+
+编辑 `.env`，至少填一个临时或正式的 DeepSeek / Anthropic-compatible key：
+
+```bash
+AI_KERNEL_PROVIDER=claude-code
+WORKBENCH_PROMPT_PROVIDER=claude-code
+CLAUDE_CODE_BASE_URL=https://api.deepseek.com/anthropic
+CLAUDE_CODE_MODEL=deepseek-v4-pro[1m]
+CLAUDE_CODE_HAIKU_MODEL=deepseek-v4-flash
+CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash
+CLAUDE_CODE_EFFORT_LEVEL=max
+DEEPSEEK_API_KEY=你的 DeepSeek API Key
+```
+
+### 3. 可选本地基础设施
+
+如果要使用真实数据库、异步渲染队列和对象存储，可自行启动 Postgres / Redis / MinIO 并执行：
+
+```bash
 pnpm db:push
 ```
 
-### 3. 配置环境变量
-
-```bash
-# Windows PowerShell
-Copy-Item .env.example .env
-
-# 最小可用配置（仅工作台 AI 功能）
-# 编辑 .env 文件，填入：
-WORKBENCH_PROMPT_PROVIDER=siliconflow-direct
-SILICONFLOW_API_KEY=你的硅基流动密钥
-SILICONFLOW_MODEL=Qwen/Qwen2.5-7B-Instruct
-```
-
-> 获取 SiliconFlow API Key：https://cloud.siliconflow.cn/
+不需要这些基础设施时，工作台和大部分 smoke 仍可用于前端/AI 链路开发。
 
 ---
 

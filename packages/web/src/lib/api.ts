@@ -22,10 +22,19 @@ export function clearApiToken() {
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
-function buildHeaders(init?: HeadersInit): Headers {
+function hasRequestBody(options?: RequestInit): boolean {
+  return options?.body !== undefined && options.body !== null;
+}
+
+function isFormDataBody(body: BodyInit | null | undefined): boolean {
+  return typeof FormData !== "undefined" && body instanceof FormData;
+}
+
+function buildHeaders(options?: RequestInit): Headers {
+  const init = options?.headers;
   const headers = new Headers(init);
   const token = getStoredToken();
-  if (!headers.has("Content-Type")) {
+  if (hasRequestBody(options) && !isFormDataBody(options?.body) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (token && !headers.has("Authorization")) {
@@ -59,7 +68,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   try {
     response = await fetch(BASE_URL + path, {
       ...options,
-      headers: buildHeaders(options?.headers),
+      headers: buildHeaders(options),
     });
   } catch (networkError) {
     const message = networkError instanceof Error ? networkError.message : String(networkError);
@@ -96,4 +105,60 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   }
 
   return JSON.parse(text) as T;
+}
+
+export type ProjectSkillSummary = {
+  name: string;
+  description: string;
+  relativePath: string;
+  hash: string;
+  updatedAt: string;
+};
+
+export type ProjectSkillDetail = ProjectSkillSummary & {
+  content: string;
+  body: string;
+};
+
+export type ProjectSkillTestResult = {
+  skillName: string;
+  mode: "dry-run" | "live";
+  promptPreview: string;
+  reply?: string;
+};
+
+export function listProjectSkills() {
+  return apiFetch<ProjectSkillSummary[]>("/admin/project-skills");
+}
+
+export function getProjectSkill(name: string) {
+  return apiFetch<ProjectSkillDetail>(`/admin/project-skills/${encodeURIComponent(name)}`);
+}
+
+export function saveProjectSkill(
+  name: string,
+  payload: { description?: string; content?: string; body?: string },
+) {
+  return apiFetch<ProjectSkillDetail>(`/admin/project-skills/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteProjectSkill(name: string) {
+  return apiFetch<{ deleted: true; name: string }>(
+    `/admin/project-skills/${encodeURIComponent(name)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function testProjectSkills(payload: {
+  skillNames: string[];
+  message: string;
+  live?: boolean;
+}) {
+  return apiFetch<{ results: ProjectSkillTestResult[] }>("/admin/project-skills/test", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

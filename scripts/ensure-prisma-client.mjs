@@ -33,10 +33,29 @@ function hasRequiredExports() {
 
 function runPrismaGenerate() {
   const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  const result = spawnSync(pnpmCommand, ["exec", "prisma", "generate", "--schema=prisma/schema.prisma"], {
-    cwd: repoRoot,
-    stdio: "inherit",
-  });
+  const prismaCommand = process.platform === "win32"
+    ? resolve(repoRoot, "node_modules", ".bin", "prisma.cmd")
+    : resolve(repoRoot, "node_modules", ".bin", "prisma");
+  let result = existsSync(prismaCommand)
+    ? spawnSync(prismaCommand, ["generate", "--schema=prisma/schema.prisma"], {
+      cwd: repoRoot,
+      stdio: "inherit",
+    })
+    : spawnSync(pnpmCommand, ["exec", "prisma", "generate", "--schema=prisma/schema.prisma"], {
+      cwd: repoRoot,
+      stdio: "inherit",
+    });
+
+  if (result.error?.code === "ENOENT") {
+    result = spawnSync(
+      "corepack",
+      ["pnpm", "exec", "prisma", "generate", "--schema=prisma/schema.prisma"],
+      {
+        cwd: repoRoot,
+        stdio: "inherit",
+      },
+    );
+  }
 
   if (result.status !== 0) {
     process.exit(result.status ?? 1);

@@ -26,6 +26,7 @@ import {
   LatexRenderer,
   listBuiltInStyleProfiles,
 } from "@black-bean-sprouts/doc-engine";
+import { runClaudeCodeTextPrompt } from "../integration/claude-code-runtime.js";
 import { runOpenClawTextPrompt } from "../integration/openclaw-runtime.js";
 import { runSiliconFlowTextPrompt } from "../integration/siliconflow-runtime.js";
 
@@ -235,6 +236,9 @@ export function createWorkbenchApplicationService(
 }
 
 function resolveWorkbenchPromptRunner(): WorkbenchPromptRunner {
+  if (process.env.WORKBENCH_PROMPT_PROVIDER === "claude-code") {
+    return runClaudeCodeTextPrompt;
+  }
   if (process.env.WORKBENCH_PROMPT_PROVIDER === "openclaw") {
     return runOpenClawTextPrompt;
   }
@@ -244,7 +248,7 @@ function resolveWorkbenchPromptRunner(): WorkbenchPromptRunner {
   if (process.env.SILICONFLOW_API_KEY?.trim()) {
     return runSiliconFlowTextPrompt;
   }
-  return runOpenClawTextPrompt;
+  return runClaudeCodeTextPrompt;
 }
 
 function buildStructuringPrompt(params: { title: string; rawText: string }): string {
@@ -1080,5 +1084,4 @@ function sanitizeDownloadFileName(value: string): string {
 function isDefined<T>(value: T | undefined | null): value is T {
   return value !== undefined && value !== null;
 }
-
 

@@ -1,5 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
 import { createAdminService } from "../../services/adminApplication.js";
+import {
+  deleteProjectSkill,
+  getProjectSkill,
+  listProjectSkills,
+  testProjectSkills,
+  upsertProjectSkill,
+} from "../../services/project-skill-service.js";
 import { PrismaClient } from "@prisma/client";
 
 export type AdminRouteDeps = {
@@ -78,6 +85,35 @@ export function createAdminRoutes(deps: AdminRouteDeps): FastifyPluginAsync {
       const { id } = req.params as { id: string };
       const { enabled } = req.body as { enabled: boolean };
       return adminService.toggleSkill(id, enabled);
+    });
+
+    // ---- Project Claude Skill files ----
+    app.get("/project-skills", async () => listProjectSkills());
+    app.get("/project-skills/:name", async (req) => {
+      const { name } = req.params as { name: string };
+      return getProjectSkill(name);
+    });
+    app.put("/project-skills/:name", async (req) => {
+      const { name } = req.params as { name: string };
+      const body = req.body as { description?: string; content?: string; body?: string };
+      return upsertProjectSkill({ name, ...body });
+    });
+    app.delete("/project-skills/:name", async (req) => {
+      const { name } = req.params as { name: string };
+      return deleteProjectSkill(name);
+    });
+    app.post("/project-skills/test", async (req) => {
+      const body = req.body as { skillNames?: string[]; message?: string; live?: boolean };
+      if (!Array.isArray(body.skillNames) || body.skillNames.length === 0) {
+        return { results: [] };
+      }
+      return {
+        results: await testProjectSkills({
+          skillNames: body.skillNames,
+          message: body.message ?? "",
+          live: body.live === true,
+        }),
+      };
     });
   };
 }

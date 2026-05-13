@@ -74,8 +74,15 @@ export type AdminRuntimeSnapshot = {
 };
 
 const WORKBENCH_PROVIDER_OPTIONS = Object.freeze([
+  { value: "claude-code", label: "Claude Code Local" },
   { value: "siliconflow-direct", label: "SiliconFlow Direct" },
-  { value: "openclaw", label: "OpenClaw Router" },
+  { value: "openclaw", label: "OpenClaw Router (legacy)" },
+]);
+
+const AI_KERNEL_PROVIDER_OPTIONS = Object.freeze([
+  { value: "claude-code", label: "Claude Code Local" },
+  { value: "fake", label: "Fake Kernel" },
+  { value: "openclaw", label: "OpenClaw Router (legacy)" },
 ]);
 
 const OPENCLAW_PROVIDER_OPTIONS = Object.freeze([
@@ -201,22 +208,150 @@ const ADMIN_RUNTIME_SECTIONS: readonly AdminRuntimeSectionDefinition[] = Object.
   },
   {
     key: "ai",
-    label: "AI And OpenClaw",
-    description: "Prompt routing, provider selection, and OpenClaw runtime paths.",
+    label: "AI Runtime",
+    description: "Prompt routing, Claude Code runtime paths, and legacy provider settings.",
     restartNote: "Most values take effect after restarting the workbench server.",
     fields: [
       {
+        key: "AI_KERNEL_PROVIDER",
+        label: "Agent Kernel Provider",
+        description: "Select the backend agent kernel. Claude Code Local is the primary path.",
+        input: "select",
+        options: AI_KERNEL_PROVIDER_OPTIONS,
+      },
+      {
+        key: "ENABLE_CLAUDE_CODE_KERNEL",
+        label: "Enable Claude Code Kernel",
+        description: "Legacy boolean switch for selecting the local Claude Code kernel.",
+        input: "boolean",
+      },
+      {
         key: "ENABLE_OPENCLAW_KERNEL",
         label: "Enable OpenClaw Kernel",
-        description: "When true, the server boots the real OpenClaw integration.",
+        description: "Legacy switch for the old OpenClaw integration.",
         input: "boolean",
       },
       {
         key: "WORKBENCH_PROMPT_PROVIDER",
         label: "Workbench Prompt Provider",
-        description: "Select whether workbench generation calls SiliconFlow directly or routes through OpenClaw.",
+        description: "Select whether workbench generation calls local Claude Code or a legacy provider.",
         input: "select",
         options: WORKBENCH_PROVIDER_OPTIONS,
+      },
+      {
+        key: "AGENT_DOCUMENT_AUTONOMY_PROVIDER",
+        label: "Document Autonomy Provider",
+        description: "Provider for document repair prompts. Use claude-code for the local Claude path.",
+        input: "select",
+        options: WORKBENCH_PROVIDER_OPTIONS,
+      },
+      {
+        key: "CLAUDE_CODE_LOCAL_ROOT",
+        label: "Claude Code Local Root",
+        description: "Project-local directory for the Claude npm install, HOME, cache, and sessions.",
+        input: "text",
+        placeholder: ".claude-runtime",
+      },
+      {
+        key: "CLAUDE_CODE_WORKSPACE_DIR",
+        label: "Claude Code Workspace Dir",
+        description: "Default working directory for Claude Code runs.",
+        input: "text",
+        placeholder: ".",
+      },
+      {
+        key: "CLAUDE_CODE_TIMEOUT_MS",
+        label: "Claude Code Timeout Ms",
+        description: "Timeout for Claude Code subprocess runs.",
+        input: "number",
+        placeholder: "120000",
+      },
+      {
+        key: "CLAUDE_CODE_MAX_TURNS",
+        label: "Claude Code Max Turns",
+        description: "Optional max-turns value passed to Claude Code.",
+        input: "number",
+        placeholder: "8",
+      },
+      {
+        key: "CLAUDE_CODE_MODEL",
+        label: "Claude Code Model",
+        description: "Optional Claude model override for local Claude Code.",
+        input: "text",
+        placeholder: "deepseek-v4-pro[1m]",
+      },
+      {
+        key: "CLAUDE_CODE_HAIKU_MODEL",
+        label: "Claude Code Haiku Model",
+        description: "Optional lightweight/default Haiku model override for Claude Code.",
+        input: "text",
+        placeholder: "deepseek-v4-flash",
+      },
+      {
+        key: "CLAUDE_CODE_SUBAGENT_MODEL",
+        label: "Claude Code Subagent Model",
+        description: "Optional model used by Claude Code subagents.",
+        input: "text",
+        placeholder: "deepseek-v4-flash",
+      },
+      {
+        key: "CLAUDE_CODE_EFFORT_LEVEL",
+        label: "Claude Code Effort Level",
+        description: "Optional Claude Code effort level, for example max when using DeepSeek.",
+        input: "text",
+        placeholder: "max",
+      },
+      {
+        key: "CLAUDE_CODE_PERMISSION_MODE",
+        label: "Claude Code Permission Mode",
+        description: "Optional Claude Code permission mode. Leave blank for CLI defaults.",
+        input: "text",
+        placeholder: "",
+      },
+      {
+        key: "CLAUDE_CODE_BASE_URL",
+        label: "Claude Code Base URL",
+        description: "Anthropic-compatible endpoint for Claude Code, for example DeepSeek or PackyAPI.",
+        input: "text",
+        placeholder: "https://api.deepseek.com/anthropic",
+      },
+      {
+        key: "CLAUDE_CODE_AUTH_TOKEN",
+        label: "Claude Code Auth Token",
+        description: "Claude Code API token. For PackyAPI, use a CC group token.",
+        input: "password",
+        placeholder: "pk-...",
+        secret: true,
+      },
+      {
+        key: "DEEPSEEK_ANTHROPIC_BASE_URL",
+        label: "DeepSeek Anthropic Base URL",
+        description: "Compatibility alias for Claude Code Base URL when using DeepSeek.",
+        input: "text",
+        placeholder: "https://api.deepseek.com/anthropic",
+      },
+      {
+        key: "DEEPSEEK_API_KEY",
+        label: "DeepSeek API Key",
+        description: "Compatibility alias for Claude Code Auth Token and DeepSeek smoke tests.",
+        input: "password",
+        placeholder: "sk-...",
+        secret: true,
+      },
+      {
+        key: "PACKY_API_BASE_URL",
+        label: "PackyAPI Base URL",
+        description: "Compatibility alias for Claude Code Base URL.",
+        input: "text",
+        placeholder: "https://www.packyapi.com",
+      },
+      {
+        key: "PACKY_API_KEY",
+        label: "PackyAPI Key",
+        description: "Compatibility alias for Claude Code Auth Token.",
+        input: "password",
+        placeholder: "pk-...",
+        secret: true,
       },
       {
         key: "OPENCLAW_PROVIDER",
@@ -544,8 +679,10 @@ export async function getAdminRuntimeSnapshot(): Promise<AdminRuntimeSnapshot> {
       promptProvider:
         normalizeNonEmpty(persistedValues.WORKBENCH_PROMPT_PROVIDER) ??
         normalizeNonEmpty(process.env.WORKBENCH_PROMPT_PROVIDER) ??
-        "siliconflow-direct",
+        "claude-code",
       llmSelection:
+        normalizeNonEmpty(persistedValues.CLAUDE_CODE_MODEL) ??
+        normalizeNonEmpty(process.env.CLAUDE_CODE_MODEL) ??
         normalizeNonEmpty(persistedValues.OPENCLAW_MODEL) ??
         normalizeNonEmpty(process.env.OPENCLAW_MODEL) ??
         normalizeNonEmpty(persistedValues.SILICONFLOW_MODEL) ??

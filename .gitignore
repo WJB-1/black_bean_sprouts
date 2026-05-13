@@ -10,9 +10,9 @@ coverage/
 prisma/migrations/
 
 # Claude Code local files
+.claude-runtime/
 .claude/settings.local.json
 .claude/homunculus/
-.claude/skills/
 .claude/projects/
 
 # Snapshots (test artifacts)
