@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "word-docx": {
+      "type": "stdio",
+      "command": "${BBS_DOCX_MCP_COMMAND:-node}",
+      "args": [
+        "${BBS_DOCX_MCP_ENTRY:-.claude-runtime/mcp/node_modules/@docx-mcp/docx-mcp/dist/index.js}"
+      ],
+      "env": {
+        "BBS_DOCX_OUTPUT_DIR": "${BBS_DOCX_OUTPUT_DIR:-.tmp/docx-mcp-output}"
+      }
+    }
+  }
+}

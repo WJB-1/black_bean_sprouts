@@ -15,6 +15,7 @@
     "dev": "pnpm -r --parallel --stream run dev",
     "setup:local": "node scripts/dev/setup-local.mjs",
     "setup:claude-code": "node scripts/dev/install-claude-code-local.mjs",
+    "setup:docx-mcp": "node scripts/dev/install-docx-mcp-local.mjs",
     "smoke": "pnpm run smoke:patch && pnpm run smoke:doc-engine && pnpm run smoke:workbench && pnpm run smoke:billing && pnpm run smoke:openclaw-config",
     "smoke:claude-code-local": "node scripts/smoke/claude-code-local.mjs",
     "smoke:deepseek-api-live": "node scripts/smoke/deepseek-api-live.mjs",

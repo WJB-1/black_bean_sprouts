@@ -76,6 +76,7 @@ npm run setup:local
 - 按锁文件安装 workspace 依赖。
 - 把 Prisma engine cache 限制在仓库 `.tmp/` 下。
 - 把 Claude Code npm 程序安装到仓库 `.claude-runtime/` 下。
+- 把 Word/DOCX MCP server 安装到仓库 `.claude-runtime/mcp/` 下。
 - 生成 Prisma client。
 
 不会写入系统级 Claude 配置，也不会修改全局 npm/pnpm 配置。
@@ -108,6 +109,18 @@ pnpm db:push
 ```
 
 不需要这些基础设施时，工作台和大部分 smoke 仍可用于前端/AI 链路开发。
+
+### Word MCP 工具
+
+仓库包含项目级 `.mcp.json`，会把 Claude Code 连接到本地 DOCX MCP server：
+
+```bash
+npm run setup:docx-mcp
+```
+
+MCP 包安装在 `.claude-runtime/mcp/`，输出建议写到 `.tmp/docx-mcp-output/`。这两个目录都在仓库内且被 gitignore，不会影响系统级 Claude 配置。
+
+本地 Claude 链路的踩坑记录、端口残留处理、进度排查和提交前检查见 `docs/LOCAL_CLAUDE_DEV_NOTES.md`。
 
 ---
 

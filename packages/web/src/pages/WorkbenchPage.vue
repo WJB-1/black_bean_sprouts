@@ -215,6 +215,14 @@
           </button>
 
           <div class="action-secondary">
+            <button
+              type="button"
+              class="btn btn--secondary btn--sm"
+              :disabled="!rawText.trim() || directDocxExporting"
+              @click="downloadDirectDocx"
+            >
+              {{ directDocxExporting ? '生成中...' : '📄 直接 Word' }}
+            </button>
             <button type="button" class="btn btn--ghost btn--sm" @click="loadExampleDraft">📋 载入示例</button>
             <button
               type="button"
@@ -233,6 +241,7 @@
             <div class="progress-track">
               <div class="progress-fill" :style="{ width: generateProgress + '%' }"></div>
             </div>
+            <div class="progress-message">{{ generateStepText }}</div>
             <div class="progress-steps">
               <span
                 v-for="(step, i) in generateSteps"
@@ -537,6 +546,23 @@ type RecentDocumentSummary = {
   createdAt: string;
 };
 
+type GenerateJobResponse = {
+  id: string;
+  status: "running" | "completed" | "failed" | "cancelled";
+  progress?: {
+    stage?: string;
+    message?: string;
+    progress?: number;
+  };
+  result?: {
+    doc?: unknown;
+    degraded?: boolean;
+    warning?: string;
+    modelOutput?: string;
+  };
+  error?: string;
+};
+
 type ActionChip = { id: string; icon: string; label: string; prompt: string };
 
 type ConfirmDialog = { title: string; message: string; onConfirm: () => void };
@@ -582,6 +608,15 @@ const actionChips: ActionChip[] = [
 ];
 
 const generateSteps = ["分析文档结构", "提取元数据", "识别章节层级", "生成结构化结果"];
+const generateStageIndex: Record<string, number> = {
+  start: 0,
+  prompt: 0,
+  model: 1,
+  parse: 2,
+  validate: 3,
+  fallback: 3,
+  done: 3,
+};
 
 /* ---------- 状态 ---------- */
 const title = ref("");
@@ -592,9 +627,9 @@ const generating = ref(false);
 const generateStepIndex = ref(0);
 const generateStepText = ref("分析文档结构...");
 const generateProgress = ref(0);
-let generateTimer: ReturnType<typeof setInterval> | null = null;
 
 const exportingFormat = ref<"docx" | "latex" | null>(null);
+const directDocxExporting = ref(false);
 const savingToEditor = ref(false);
 const dragActive = ref(false);
 const error = ref("");
@@ -688,32 +723,68 @@ function runChipAction(chip: ActionChip) {
   toast.info(`已添加「${chip.label}」指令`);
 }
 
-/* ---------- 生成进度动画 ---------- */
+/* ---------- 生成进度 ---------- */
 function startGenerateProgress() {
   generateStepIndex.value = 0;
-  generateProgress.value = 0;
+  generateProgress.value = 5;
   generateStepText.value = generateSteps[0] + "...";
+}
 
-  generateTimer = setInterval(() => {
-    generateProgress.value = Math.min(generateProgress.value + Math.random() * 15, 95);
-    if (generateProgress.value > (generateStepIndex.value + 1) * 25) {
-      generateStepIndex.value = Math.min(generateStepIndex.value + 1, generateSteps.length - 1);
-      generateStepText.value = generateSteps[generateStepIndex.value] + "...";
-    }
-  }, 800);
+function applyGenerateProgress(progress: { stage?: string; message?: string; progress?: number }) {
+  const stage = progress.stage ?? "";
+  generateStepIndex.value = generateStageIndex[stage] ?? generateStepIndex.value;
+  generateProgress.value = clampProgress(progress.progress ?? generateProgress.value);
+  generateStepText.value = progress.message?.trim() || `${generateSteps[generateStepIndex.value]}...`;
 }
 
 function stopGenerateProgress() {
-  if (generateTimer) {
-    clearInterval(generateTimer);
-    generateTimer = null;
-  }
   generateProgress.value = 100;
   generateStepText.value = "完成";
   setTimeout(() => {
     generateProgress.value = 0;
     generateStepIndex.value = 0;
   }, 500);
+}
+
+function clampProgress(value: number): number {
+  if (!Number.isFinite(value)) return generateProgress.value;
+  return Math.max(0, Math.min(100, value));
+}
+
+function parseNdjsonRecord(line: string): Record<string, unknown> | undefined {
+  const trimmed = line.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readGenerateDoneRecord(record: Record<string, unknown>): {
+  doc: Doc;
+  degraded: boolean;
+  warning?: string;
+  modelOutput?: string;
+} {
+  if (!isRecord(record.doc)) {
+    throw new Error("后端返回的文档结构无效。");
+  }
+  return {
+    doc: record.doc as Doc,
+    degraded: record.degraded === true,
+    warning: typeof record.warning === "string" ? record.warning : undefined,
+    modelOutput: typeof record.modelOutput === "string" ? record.modelOutput : undefined,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /* ---------- API 调用 ---------- */
@@ -771,16 +842,7 @@ async function generateDocument() {
   startGenerateProgress();
 
   try {
-    const response = await apiFetch<{
-      doc: Doc;
-      degraded: boolean;
-      warning?: string;
-      modelOutput?: string;
-    }>("/workbench/generate", {
-      method: "POST",
-      body: JSON.stringify({ title: title.value, rawText: rawText.value }),
-    });
-
+    const response = await pollGenerateDocument();
     doc.value = response.doc;
     warning.value = response.warning ?? "";
     modelOutput.value = response.modelOutput ?? "";
@@ -794,6 +856,136 @@ async function generateDocument() {
     stopGenerateProgress();
     generating.value = false;
   }
+}
+
+async function pollGenerateDocument(): Promise<{
+  doc: Doc;
+  degraded: boolean;
+  warning?: string;
+  modelOutput?: string;
+}> {
+  let job = await createGenerateJob();
+  applyGenerateProgress(job.progress ?? {});
+
+  while (job.status === "running") {
+    await delay(1000);
+    job = await fetchGenerateJob(job.id);
+    applyGenerateProgress(job.progress ?? {});
+  }
+
+  if (job.status === "completed") {
+    return readGenerateJobResult(job);
+  }
+  if (job.status === "cancelled") {
+    throw new Error("生成任务已取消。");
+  }
+  throw new Error(job.error || "生成任务失败。");
+}
+
+async function createGenerateJob(): Promise<GenerateJobResponse> {
+  const response = await fetch("/api/workbench/generate/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title.value, rawText: rawText.value }),
+  });
+  return readGenerateJobResponse(response, "创建生成任务失败");
+}
+
+async function fetchGenerateJob(jobId: string): Promise<GenerateJobResponse> {
+  const response = await fetch(`/api/workbench/generate/jobs/${encodeURIComponent(jobId)}`, {
+    method: "GET",
+  });
+  return readGenerateJobResponse(response, "查询生成进度失败");
+}
+
+async function readGenerateJobResponse(response: Response, fallbackMessage: string): Promise<GenerateJobResponse> {
+  if (!response.ok) {
+    const failureText = await response.text();
+    throw new Error(failureText.trim() || `${fallbackMessage}：${response.status}`);
+  }
+  const data = (await response.json()) as unknown;
+  if (!isRecord(data) || typeof data.id !== "string" || typeof data.status !== "string") {
+    throw new Error("后端返回的生成任务状态无效。");
+  }
+  return data as GenerateJobResponse;
+}
+
+function readGenerateJobResult(job: GenerateJobResponse): {
+  doc: Doc;
+  degraded: boolean;
+  warning?: string;
+  modelOutput?: string;
+} {
+  if (!isRecord(job.result) || !isRecord(job.result.doc)) {
+    throw new Error("后端没有返回结构化结果。");
+  }
+  return {
+    doc: job.result.doc as Doc,
+    degraded: job.result.degraded === true,
+    warning: typeof job.result.warning === "string" ? job.result.warning : undefined,
+    modelOutput: typeof job.result.modelOutput === "string" ? job.result.modelOutput : undefined,
+  };
+}
+
+async function streamGenerateDocument(): Promise<{
+  doc: Doc;
+  degraded: boolean;
+  warning?: string;
+  modelOutput?: string;
+}> {
+  const response = await fetch("/api/workbench/generate/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title.value, rawText: rawText.value }),
+  });
+
+  if (!response.ok) {
+    const failureText = await response.text();
+    throw new Error(failureText.trim() || `结构化请求失败：${response.status}`);
+  }
+  if (!response.body) {
+    throw new Error("浏览器不支持流式读取生成进度。");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResult: {
+    doc: Doc;
+    degraded: boolean;
+    warning?: string;
+    modelOutput?: string;
+  } | undefined;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (value) {
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const record = parseNdjsonRecord(line);
+        if (!record) continue;
+        if (record.type === "progress" && isRecord(record.progress)) {
+          applyGenerateProgress(record.progress as { stage?: string; message?: string; progress?: number });
+        } else if (record.type === "done") {
+          finalResult = readGenerateDoneRecord(record);
+        } else if (record.type === "error") {
+          throw new Error(typeof record.error === "string" ? record.error : "结构化请求失败。");
+        }
+      }
+    }
+    if (done) break;
+  }
+
+  const trailingRecord = parseNdjsonRecord(buffer);
+  if (trailingRecord?.type === "done") {
+    finalResult = readGenerateDoneRecord(trailingRecord);
+  }
+  if (!finalResult) {
+    throw new Error("后端没有返回结构化结果。");
+  }
+  return finalResult;
 }
 
 async function downloadFile(format: "docx" | "latex") {
@@ -827,6 +1019,55 @@ async function downloadFile(format: "docx" | "latex") {
     toast.error(error.value);
   } finally {
     exportingFormat.value = null;
+  }
+}
+
+async function downloadDirectDocx() {
+  if (!rawText.value.trim()) {
+    error.value = "请先输入原稿。";
+    return;
+  }
+
+  error.value = "";
+  warning.value = "";
+  exportMessage.value = "";
+  directDocxExporting.value = true;
+
+  try {
+    const response = await fetch("/api/workbench/generate-docx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: title.value,
+        rawText: rawText.value,
+        style: buildExportStylePayload(),
+      }),
+    });
+
+    if (!response.ok) {
+      const failureText = await response.text();
+      throw new Error(failureText.trim() || `Word 生成失败：${response.status}`);
+    }
+
+    const warningHeader = response.headers.get("X-BBS-Generation-Warning");
+    if (warningHeader) {
+      warning.value = decodeURIComponent(warningHeader);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const blob = new Blob([arrayBuffer], {
+      type: response.headers.get("Content-Type") ?? getMimeType("docx"),
+    });
+    const serverFileName = extractDownloadName(response.headers.get("Content-Disposition"));
+    const fileName = serverFileName ?? getDirectDocxDownloadName();
+    const savedWithPicker = await saveExportBlob(blob, fileName, "docx");
+    exportMessage.value = savedWithPicker ? `已保存：${fileName}` : `已下载：${fileName}`;
+    toast.success(exportMessage.value);
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "Word 生成失败。";
+    toast.error(error.value);
+  } finally {
+    directDocxExporting.value = false;
   }
 }
 
@@ -1070,6 +1311,10 @@ function getDownloadName(format: "docx" | "latex"): string {
   return format === "docx" ? `${base}.docx` : `${base}.tex`;
 }
 
+function getDirectDocxDownloadName(): string {
+  return `${sanitizeFileName(title.value || "document")}.docx`;
+}
+
 function getMimeType(format: "docx" | "latex"): string {
   return format === "docx"
     ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -1153,7 +1398,7 @@ function sanitizeFileName(value: string): string {
   return value
     .trim()
     .normalize("NFC")
-    .replace(/[<>:"/\\|?* -]+/g, "-")
+    .replace(/[<>:"/\\|?*\x00-\x1f-]+/g, "-")
     .replace(/\s+/g, " ")
     .trim() || "document";
 }
@@ -1792,6 +2037,15 @@ function isStoredDoc(value: unknown): value is Doc {
   border-radius: var(--radius-full);
   transition: width 0.3s var(--ease-out);
   box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+}
+
+.progress-message {
+  min-height: 20px;
+  margin-bottom: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .progress-steps {

@@ -24,7 +24,7 @@ type ClaudeRunOutput = {
 
 type ClaudeRunMode = "json" | "stream-json";
 
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 300_000;
 const SAFE_SESSION_ID_RE = /^[a-z0-9][a-z0-9._-]{0,127}$/i;
 
 function getBlackBeanSproutsRoot(): string {
@@ -75,6 +75,18 @@ function getClaudeBinaryPath(): string {
 
 function getClaudeWorkspaceDir(): string {
   return resolveFromRoot(process.env.CLAUDE_CODE_WORKSPACE_DIR?.trim() || ".");
+}
+
+function getDocxMcpEntryPath(): string {
+  return path.join(
+    getClaudeRuntimeRoot(),
+    "mcp",
+    "node_modules",
+    "@docx-mcp",
+    "docx-mcp",
+    "dist",
+    "index.js",
+  );
 }
 
 function getClaudeTimeoutMs(): number {
@@ -359,6 +371,7 @@ async function runClaudeCode(params: {
   const claudeBin = getClaudeBinaryPath();
   const homeDir = getClaudeHomeDir();
   const runtimeRoot = getClaudeRuntimeRoot();
+  const repoRoot = getBlackBeanSproutsRoot();
   const jsonValues: unknown[] = [];
   const args = buildClaudeArgs({
     prompt: params.prompt,
@@ -375,6 +388,11 @@ async function runClaudeCode(params: {
     ...(getClaudeBaseUrl() ? { ANTHROPIC_BASE_URL: getClaudeBaseUrl() } : {}),
     ...(getClaudeAuthToken() ? { ANTHROPIC_AUTH_TOKEN: getClaudeAuthToken() } : {}),
     ...buildClaudeModelEnv(),
+    BBS_DOCX_MCP_COMMAND: process.execPath,
+    BBS_DOCX_MCP_ENTRY: getDocxMcpEntryPath(),
+    BBS_DOCX_OUTPUT_DIR: path.join(repoRoot, ".tmp", "docx-mcp-output"),
+    MCP_TIMEOUT: process.env.MCP_TIMEOUT ?? "15000",
+    MAX_MCP_OUTPUT_TOKENS: process.env.MAX_MCP_OUTPUT_TOKENS ?? "50000",
     CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
     DISABLE_AUTOUPDATER: "1",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
@@ -389,16 +407,35 @@ async function runClaudeCode(params: {
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    void Promise.resolve(
+      params.onJsonValue?.({
+        type: "process",
+        subtype: "spawned",
+        pid: child.pid,
+        timeout_ms: getClaudeTimeoutMs(),
+      }),
+    ).catch(() => undefined);
 
     let stdout = "";
     let stderr = "";
     let stdoutBuffer = "";
     let timedOut = false;
+    const startedAt = Date.now();
 
     const timeout = setTimeout(() => {
       timedOut = true;
       child.kill("SIGTERM");
     }, getClaudeTimeoutMs());
+    const heartbeat = setInterval(() => {
+      void Promise.resolve(
+        params.onJsonValue?.({
+          type: "process",
+          subtype: "heartbeat",
+          elapsed_ms: Date.now() - startedAt,
+          timeout_ms: getClaudeTimeoutMs(),
+        }),
+      ).catch(() => undefined);
+    }, 10_000);
 
     const abort = () => {
       child.kill("SIGTERM");
@@ -438,12 +475,14 @@ async function runClaudeCode(params: {
 
     child.on("error", (error) => {
       clearTimeout(timeout);
+      clearInterval(heartbeat);
       params.abortSignal?.removeEventListener("abort", abort);
       reject(error);
     });
 
     child.on("close", async (code) => {
       clearTimeout(timeout);
+      clearInterval(heartbeat);
       params.abortSignal?.removeEventListener("abort", abort);
       handleLine(stdoutBuffer);
 
@@ -471,20 +510,29 @@ export async function runClaudeCodeTextPrompt(params: {
   sessionId?: string;
   sessionKey?: string;
   abortSignal?: AbortSignal;
+  onJsonValue?: (value: unknown) => Promise<void> | void;
+  onProgress?: (value: unknown) => Promise<void> | void;
 }): Promise<string> {
+  const onJsonValue = params.onJsonValue ?? params.onProgress;
   const resolvedSession = await resolveClaudeSession({
     sessionId: params.sessionId,
     sessionKey: params.sessionKey,
   });
   const output = await runClaudeCode({
     prompt: params.message,
-    mode: "json",
+    mode: onJsonValue ? "stream-json" : "json",
     sessionId: resolvedSession.sessionId,
     sessionKey: resolvedSession.sessionKey,
     abortSignal: params.abortSignal,
+    onJsonValue,
   });
 
-  const lastJson = output.jsonValues.at(-1);
+  const lastJson =
+    output.jsonValues
+      .slice()
+      .reverse()
+      .find((value) => readNestedString(value, ["type"]) === "result") ??
+    output.jsonValues.at(-1);
   if (lastJson && isClaudeError(lastJson)) {
     throw new Error(readClaudeError(lastJson) ?? "Claude Code returned an error.");
   }

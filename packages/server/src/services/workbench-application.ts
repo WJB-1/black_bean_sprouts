@@ -47,6 +47,21 @@ export type WorkbenchGenerateResult = {
   readonly warning?: string;
 };
 
+export type WorkbenchGenerateStage =
+  | "start"
+  | "prompt"
+  | "model"
+  | "parse"
+  | "validate"
+  | "fallback"
+  | "done";
+
+export type WorkbenchGenerateProgress = {
+  readonly stage: WorkbenchGenerateStage;
+  readonly message: string;
+  readonly progress: number;
+};
+
 export type WorkbenchExportResult = {
   readonly buffer: Buffer;
   readonly fileName: string;
@@ -85,7 +100,12 @@ export type WorkbenchImportResult = {
 
 export type WorkbenchApplicationService = {
   importSource(params: { fileName: string; contentBase64: string }): Promise<WorkbenchImportResult>;
-  generateDocument(params: { rawText: string; title?: string }): Promise<WorkbenchGenerateResult>;
+  generateDocument(params: {
+    rawText: string;
+    title?: string;
+    abortSignal?: AbortSignal;
+    onProgress?: (progress: WorkbenchGenerateProgress) => Promise<void> | void;
+  }): Promise<WorkbenchGenerateResult>;
   exportDocument(params: {
     doc: Doc;
     format: "docx" | "latex";
@@ -97,6 +117,8 @@ export type WorkbenchApplicationService = {
 export type WorkbenchPromptRunner = (params: {
   message: string;
   sessionKey: string;
+  abortSignal?: AbortSignal;
+  onProgress?: (event: unknown) => Promise<void> | void;
 }) => Promise<string>;
 
 export type WorkbenchApplicationDeps = {
@@ -155,31 +177,45 @@ export function createWorkbenchApplicationService(
       const rawText = params.rawText.trim();
       const fallbackTitle = normalizeOptionalString(params.title) ?? deriveTitleFromRawText(rawText);
       const sessionKey = `workbench:generate:${randomUUID()}`;
+      const emitProgress = async (progress: WorkbenchGenerateProgress) => {
+        await params.onProgress?.(progress);
+      };
 
       if (!rawText) {
         throw new Error("rawText is required");
       }
 
+      await emitProgress({ stage: "start", message: "接收原稿并准备结构化任务", progress: 5 });
       const prompt = buildStructuringPrompt({
         title: fallbackTitle,
         rawText,
       });
+      await emitProgress({ stage: "prompt", message: "已构建结构化提示词", progress: 15 });
 
       try {
+        await emitProgress({ stage: "model", message: "正在调用 AI 生成结构化草稿", progress: 35 });
         const modelOutput = await runPrompt({
           message: prompt,
           sessionKey,
+          abortSignal: params.abortSignal,
+          onProgress: async (event) => {
+            await emitProgress(toPromptProgress(event));
+          },
         });
+        await emitProgress({ stage: "parse", message: "正在解析 AI 返回的结构化内容", progress: 70 });
         const draft = await parseStructuredDraftWithRecovery({
           modelOutput,
           fallbackTitle,
           runPrompt,
           sessionKey,
+          abortSignal: params.abortSignal,
         });
         const doc = convertDraftToDoc(draft, fallbackTitle);
+        await emitProgress({ stage: "validate", message: "正在校验文档结构", progress: 88 });
         const validation = isValidDoc(doc);
 
         if (!validation.ok) {
+          await emitProgress({ stage: "fallback", message: "结构校验失败，已回退为段落导入", progress: 95 });
           return {
             doc: buildFallbackDoc(rawText, fallbackTitle),
             modelOutput,
@@ -188,12 +224,14 @@ export function createWorkbenchApplicationService(
           };
         }
 
+        await emitProgress({ stage: "done", message: "结构化文档生成完成", progress: 100 });
         return {
           doc,
           modelOutput,
           degraded: false,
         };
       } catch (error) {
+        await emitProgress({ stage: "fallback", message: "AI 结构化失败，已回退为段落导入", progress: 95 });
         return {
           doc: buildFallbackDoc(rawText, fallbackTitle),
           modelOutput: error instanceof Error ? error.message : String(error),
@@ -249,6 +287,67 @@ function resolveWorkbenchPromptRunner(): WorkbenchPromptRunner {
     return runSiliconFlowTextPrompt;
   }
   return runClaudeCodeTextPrompt;
+}
+
+function toPromptProgress(event: unknown): WorkbenchGenerateProgress {
+  const record = asUnknownRecord(event);
+  const type = typeof record?.type === "string" ? record.type : "event";
+  const subtype = typeof record?.subtype === "string" ? record.subtype : undefined;
+  const resultText = typeof record?.result === "string" ? record.result.trim() : "";
+
+  if (type === "system") {
+    return {
+      stage: "model",
+      message: subtype ? `Claude Code 已启动：${subtype}` : "Claude Code 已启动",
+      progress: 40,
+    };
+  }
+
+  if (type === "process") {
+    const elapsedMs = typeof record?.elapsed_ms === "number" ? record.elapsed_ms : 0;
+    const timeoutMs = typeof record?.timeout_ms === "number" ? record.timeout_ms : 0;
+    const elapsedSeconds = Math.max(0, Math.round(elapsedMs / 1000));
+    const timeoutSeconds = Math.max(0, Math.round(timeoutMs / 1000));
+    return {
+      stage: "model",
+      message:
+        record?.subtype === "heartbeat"
+          ? `Claude 仍在运行：${elapsedSeconds}s / ${timeoutSeconds}s`
+          : `Claude 子进程已启动，超时上限 ${timeoutSeconds}s`,
+      progress: record?.subtype === "heartbeat" ? 45 : 38,
+    };
+  }
+
+  if (type === "assistant") {
+    return {
+      stage: "model",
+      message: "Claude 正在生成结构化草稿",
+      progress: 55,
+    };
+  }
+
+  if (type === "result") {
+    return {
+      stage: "model",
+      message: resultText.startsWith("Not logged in")
+        ? "Claude 返回登录/鉴权错误"
+        : "Claude 已返回模型结果",
+      progress: 68,
+    };
+  }
+
+  return {
+    stage: "model",
+    message: `Claude 事件：${type}`,
+    progress: 45,
+  };
+}
+
+function asUnknownRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 function buildStructuringPrompt(params: { title: string; rawText: string }): string {
@@ -326,6 +425,7 @@ async function parseStructuredDraftWithRecovery(params: {
   fallbackTitle: string;
   runPrompt: WorkbenchPromptRunner;
   sessionKey: string;
+  abortSignal?: AbortSignal;
 }): Promise<StructuredDraft> {
   try {
     return parseStructuredDraft(params.modelOutput);
@@ -336,6 +436,7 @@ async function parseStructuredDraftWithRecovery(params: {
         modelOutput: params.modelOutput,
       }),
       sessionKey: `${params.sessionKey}:repair`,
+      abortSignal: params.abortSignal,
     });
 
     try {
@@ -1084,4 +1185,3 @@ function sanitizeDownloadFileName(value: string): string {
 function isDefined<T>(value: T | undefined | null): value is T {
   return value !== undefined && value !== null;
 }
-

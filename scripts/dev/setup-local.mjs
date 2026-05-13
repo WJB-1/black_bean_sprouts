@@ -37,6 +37,7 @@ async function main() {
 
   await run("corepack", ["pnpm", "install", "--frozen-lockfile"], { env });
   await run("node", ["scripts/dev/install-claude-code-local.mjs"], { env });
+  await run("node", ["scripts/dev/install-docx-mcp-local.mjs"], { env });
   await run("node", ["scripts/ensure-prisma-client.mjs"], { env });
 
   console.log("Local setup complete.");
