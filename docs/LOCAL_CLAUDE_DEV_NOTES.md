@@ -42,6 +42,28 @@ BBS_DOCX_OUTPUT_DIR=$PWD/.tmp/docx-mcp-output
 
 如果页面长时间停在“正在调用 AI”，用 `GET /api/workbench/generate/jobs/:jobId` 查状态。只要 `updatedAt` 在变化或 message 有 heartbeat，就说明后端仍在等 Claude。
 
+## 直接 Word 文件工作流
+
+“直接 Word”不走 JSON AST 结构化链路。它走文件型任务：
+
+- `POST /api/workbench/generate-docx/jobs`
+- `GET /api/workbench/generate-docx/jobs/:jobId`
+- `GET /api/workbench/generate-docx/jobs/:jobId/download`
+
+每个任务创建仓库内工作目录：
+
+```text
+.tmp/workbench-runs/<jobId>/
+├── SKILL.md
+├── source.md
+├── style.json
+├── task.md
+├── result.md
+└── output.docx
+```
+
+Claude 只需要按 `SKILL.md` 读取 `source.md` 并编辑 `result.md`，不要返回大 JSON。后端读取 `result.md`，渲染并校验 `output.docx`，最后前端下载 Word 文件。这样长文本不会再卡在 JSON 生成和 JSON 修复上。
+
 ## 端口残留
 
 `tsx watch` 在频繁重启时容易留下占用 `3000` 的 node 进程，导致新后端启动失败：

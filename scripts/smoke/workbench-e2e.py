@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import json
 import os
+import re
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 
@@ -133,21 +135,45 @@ def run_direct_docx_test(context):
     target = OUTPUT_DIR / download.suggested_filename
     download.save_as(str(target))
     size = target.stat().st_size if target.exists() else 0
+    docx_text = extract_docx_text(target) if target.exists() else ""
     screenshot = OUTPUT_DIR / "workbench-direct-docx.png"
     page.screenshot(path=str(screenshot), full_page=True)
 
     result = {
         "name": "direct-docx",
-        "ok": target.exists() and size > 0 and target.suffix.lower() == ".docx",
+        "ok": target.exists()
+        and size > 0
+        and target.suffix.lower() == ".docx"
+        and "直接Word端到端测试" in docx_text
+        and "确认前端直接 Word 按钮可以调用后端并下载 docx" in docx_text
+        and "下载应该成功" in docx_text,
         "elapsed_seconds": elapsed_since(start),
         "suggested_filename": download.suggested_filename,
         "saved_path": str(target),
         "size_bytes": size,
+        "docx_text_excerpt": docx_text[:500],
         "events": events,
         "screenshot": str(screenshot),
     }
     page.close()
     return result
+
+
+def extract_docx_text(path):
+    with zipfile.ZipFile(path) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+    text_parts = re.findall(r"<w:t[^>]*>(.*?)</w:t>", document_xml)
+    return "".join(unescape_xml(part) for part in text_parts)
+
+
+def unescape_xml(value):
+    return (
+        value.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("&quot;", '"')
+        .replace("&apos;", "'")
+    )
 
 
 def main():

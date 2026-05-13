@@ -221,7 +221,7 @@
               :disabled="!rawText.trim() || directDocxExporting"
               @click="downloadDirectDocx"
             >
-              {{ directDocxExporting ? '生成中...' : '📄 直接 Word' }}
+              {{ directDocxExporting ? directDocxProgressText : '📄 直接 Word' }}
             </button>
             <button type="button" class="btn btn--ghost btn--sm" @click="loadExampleDraft">📋 载入示例</button>
             <button
@@ -563,6 +563,24 @@ type GenerateJobResponse = {
   error?: string;
 };
 
+type WordJobResponse = {
+  id: string;
+  status: "running" | "completed" | "failed" | "cancelled";
+  progress?: {
+    stage?: string;
+    message?: string;
+    progress?: number;
+  };
+  result?: {
+    fileName?: string;
+    workspaceDir?: string;
+    markdownPath?: string;
+    contentType?: string;
+    modelOutput?: string;
+  };
+  error?: string;
+};
+
 type ActionChip = { id: string; icon: string; label: string; prompt: string };
 
 type ConfirmDialog = { title: string; message: string; onConfirm: () => void };
@@ -630,6 +648,7 @@ const generateProgress = ref(0);
 
 const exportingFormat = ref<"docx" | "latex" | null>(null);
 const directDocxExporting = ref(false);
+const directDocxProgressText = ref("生成中...");
 const savingToEditor = ref(false);
 const dragActive = ref(false);
 const error = ref("");
@@ -1032,28 +1051,17 @@ async function downloadDirectDocx() {
   warning.value = "";
   exportMessage.value = "";
   directDocxExporting.value = true;
+  directDocxProgressText.value = "创建 Word 任务...";
 
   try {
-    const response = await fetch("/api/workbench/generate-docx", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: title.value,
-        rawText: rawText.value,
-        style: buildExportStylePayload(),
-      }),
+    const job = await pollDirectDocxJob();
+    const response = await fetch(`/api/workbench/generate-docx/jobs/${encodeURIComponent(job.id)}/download`, {
+      method: "GET",
     });
-
     if (!response.ok) {
       const failureText = await response.text();
-      throw new Error(failureText.trim() || `Word 生成失败：${response.status}`);
+      throw new Error(failureText.trim() || `Word 下载失败：${response.status}`);
     }
-
-    const warningHeader = response.headers.get("X-BBS-Generation-Warning");
-    if (warningHeader) {
-      warning.value = decodeURIComponent(warningHeader);
-    }
-
     const arrayBuffer = await response.arrayBuffer();
     const blob = new Blob([arrayBuffer], {
       type: response.headers.get("Content-Type") ?? getMimeType("docx"),
@@ -1068,7 +1076,70 @@ async function downloadDirectDocx() {
     toast.error(error.value);
   } finally {
     directDocxExporting.value = false;
+    directDocxProgressText.value = "生成中...";
   }
+}
+
+async function pollDirectDocxJob(): Promise<WordJobResponse> {
+  let job = await createDirectDocxJob();
+  applyDirectDocxProgress(job.progress);
+
+  while (job.status === "running") {
+    await delay(1000);
+    job = await fetchDirectDocxJob(job.id);
+    applyDirectDocxProgress(job.progress);
+  }
+
+  if (job.status === "completed") {
+    directDocxProgressText.value = "下载 Word...";
+    return job;
+  }
+  if (job.status === "cancelled") {
+    throw new Error("Word 生成任务已取消。");
+  }
+  throw new Error(job.error || "Word 生成任务失败。");
+}
+
+async function createDirectDocxJob(): Promise<WordJobResponse> {
+  const response = await fetch("/api/workbench/generate-docx/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: title.value,
+      rawText: rawText.value,
+      style: buildExportStylePayload(),
+    }),
+  });
+  return readWordJobResponse(response, "创建 Word 任务失败");
+}
+
+async function fetchDirectDocxJob(jobId: string): Promise<WordJobResponse> {
+  const response = await fetch(`/api/workbench/generate-docx/jobs/${encodeURIComponent(jobId)}`, {
+    method: "GET",
+  });
+  return readWordJobResponse(response, "查询 Word 进度失败");
+}
+
+async function readWordJobResponse(response: Response, fallbackMessage: string): Promise<WordJobResponse> {
+  if (!response.ok) {
+    const failureText = await response.text();
+    throw new Error(failureText.trim() || `${fallbackMessage}：${response.status}`);
+  }
+  const data = (await response.json()) as unknown;
+  if (!isRecord(data) || typeof data.id !== "string" || typeof data.status !== "string") {
+    throw new Error("后端返回的 Word 任务状态无效。");
+  }
+  return data as WordJobResponse;
+}
+
+function applyDirectDocxProgress(progress: WordJobResponse["progress"]) {
+  const message = progress?.message?.trim();
+  directDocxProgressText.value = message ? shortenButtonText(message) : "生成中...";
+  exportMessage.value = message ?? "";
+}
+
+function shortenButtonText(value: string): string {
+  return value.length > 16 ? `${value.slice(0, 16)}...` : value;
 }
 
 async function openInEditor() {

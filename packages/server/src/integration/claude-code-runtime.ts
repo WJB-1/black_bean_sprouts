@@ -546,6 +546,42 @@ export async function runClaudeCodeTextPrompt(params: {
   return text;
 }
 
+export async function runClaudeCodeFilePrompt(params: {
+  message: string;
+  cwd: string;
+  sessionId?: string;
+  sessionKey?: string;
+  abortSignal?: AbortSignal;
+  onProgress?: (value: unknown) => Promise<void> | void;
+}): Promise<string> {
+  const resolvedSession = await resolveClaudeSession({
+    sessionId: params.sessionId,
+    sessionKey: params.sessionKey,
+  });
+  const output = await runClaudeCode({
+    prompt: params.message,
+    mode: "stream-json",
+    cwd: params.cwd,
+    sessionId: resolvedSession.sessionId,
+    sessionKey: resolvedSession.sessionKey,
+    documentMode: true,
+    abortSignal: params.abortSignal,
+    onJsonValue: params.onProgress,
+  });
+
+  const lastJson =
+    output.jsonValues
+      .slice()
+      .reverse()
+      .find((value) => readNestedString(value, ["type"]) === "result") ??
+    output.jsonValues.at(-1);
+  if (lastJson && isClaudeError(lastJson)) {
+    throw new Error(readClaudeError(lastJson) ?? "Claude Code returned an error.");
+  }
+
+  return readTextFromContent(lastJson) ?? normalizeOptionalString(output.stdout) ?? "";
+}
+
 export function createClaudeCodeAgentRunner(): OpenClawAgentRunner {
   return async ({ message, sessionId, sessionKey, documentId, abortSignal, onEvent }) => {
     const resolvedSession = await resolveClaudeSession({ sessionId, sessionKey });
