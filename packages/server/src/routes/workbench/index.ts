@@ -19,11 +19,16 @@ type GenerateJobProgress = {
   readonly progress: number;
 };
 
+type GenerateJobProgressEvent = GenerateJobProgress & {
+  readonly at: string;
+};
+
 type GenerateJob = {
   readonly id: string;
   readonly abortController: AbortController;
   status: GenerateJobStatus;
   progress: GenerateJobProgress;
+  history: GenerateJobProgressEvent[];
   result?: WorkbenchGenerateResult;
   error?: string;
   readonly createdAt: string;
@@ -104,6 +109,7 @@ export function createWorkbenchRoutes(deps: WorkbenchRouteDeps): FastifyPluginAs
         abortController: new AbortController(),
         status: "running",
         progress: initialGenerateJobProgress,
+        history: [{ ...initialGenerateJobProgress, at: now }],
         createdAt: now,
         updatedAt: now,
       };
@@ -113,6 +119,7 @@ export function createWorkbenchRoutes(deps: WorkbenchRouteDeps): FastifyPluginAs
         workbenchService,
         rawText,
         title: req.body?.title,
+        logger: app.log,
       });
 
       return reply.status(202).send(serializeGenerateJob(job));
@@ -218,6 +225,18 @@ export function createWorkbenchRoutes(deps: WorkbenchRouteDeps): FastifyPluginAs
       const generated = await workbenchService.generateDocument({
         rawText,
         title: req.body?.title,
+        onProgress: (progress) => {
+          app.log.info(
+            {
+              requestId: req.id,
+              route: "generate-docx",
+              stage: progress.stage,
+              progress: progress.progress,
+              message: progress.message,
+            },
+            "workbench generate-docx progress",
+          );
+        },
       });
       const exported = await workbenchService.exportDocument({
         doc: generated.doc,
@@ -282,6 +301,10 @@ async function runGenerateJob(params: {
   workbenchService: WorkbenchApplicationService;
   rawText: string;
   title?: string;
+  logger?: {
+    info: (payload: Record<string, unknown>, message?: string) => void;
+    error: (payload: Record<string, unknown>, message?: string) => void;
+  };
 }): Promise<void> {
   const { job } = params;
   try {
@@ -293,6 +316,15 @@ async function runGenerateJob(params: {
         updateGenerateJob(job, {
           progress: toGenerateJobProgress(progress),
         });
+        params.logger?.info(
+          {
+            jobId: job.id,
+            stage: progress.stage,
+            progress: progress.progress,
+            message: progress.message,
+          },
+          "workbench generate progress",
+        );
       },
     });
     if (job.status === "cancelled" || job.abortController.signal.aborted) {
@@ -311,6 +343,14 @@ async function runGenerateJob(params: {
       result,
       progress: { stage: "done", message: "结构化文档生成完成", progress: 100 },
     });
+    params.logger?.info(
+      {
+        jobId: job.id,
+        degraded: result.degraded,
+        warning: result.warning,
+      },
+      "workbench generate completed",
+    );
   } catch (error) {
     updateGenerateJob(job, {
       status: job.abortController.signal.aborted ? "cancelled" : "failed",
@@ -321,6 +361,13 @@ async function runGenerateJob(params: {
         progress: job.progress.progress,
       },
     });
+    params.logger?.error(
+      {
+        jobId: job.id,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "workbench generate failed",
+    );
   }
 }
 
@@ -328,7 +375,11 @@ function updateGenerateJob(
   job: GenerateJob,
   patch: Partial<Pick<GenerateJob, "status" | "progress" | "result" | "error">>,
 ): void {
-  Object.assign(job, patch, { updatedAt: new Date().toISOString() });
+  const updatedAt = new Date().toISOString();
+  if (patch.progress) {
+    job.history = [...job.history, { ...patch.progress, at: updatedAt }].slice(-200);
+  }
+  Object.assign(job, patch, { updatedAt });
 }
 
 function toGenerateJobProgress(progress: WorkbenchGenerateProgress): GenerateJobProgress {
@@ -344,6 +395,7 @@ function serializeGenerateJob(job: GenerateJob): Record<string, unknown> {
     id: job.id,
     status: job.status,
     progress: job.progress,
+    history: job.history,
     result: job.result
       ? {
           doc: job.result.doc,

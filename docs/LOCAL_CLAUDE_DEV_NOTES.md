@@ -90,6 +90,23 @@ env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY curl http://127.0.
 7. 轮询 `GET /api/workbench/generate/jobs/:jobId`，确认进度会更新。
 8. 测 `POST /api/workbench/generate-docx`，确认返回 `.docx`。
 
+## 浏览器端到端测试
+
+固定命令：
+
+```bash
+npm run smoke:workbench-e2e
+```
+
+这个脚本会用 Playwright 打开真实前端页面：
+
+- 填写短文档并点击“一键整理”。
+- 等待后端任务完成并确认页面出现结构化结果。
+- 点击“直接 Word”并确认浏览器下载 `.docx`。
+- 截图和下载文件写入 `.tmp/e2e/`。
+
+如果普通沙箱里 Chromium 启动失败，需要在宿主机权限下运行这个固定命令。不要临时粘贴大段 Python；后续统一跑这个脚本。
+
 提交前必须检查：
 
 ```bash

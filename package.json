@@ -28,6 +28,7 @@
     "smoke:doc-engine": "tsx scripts/smoke/doc-engine.ts",
     "smoke:workbench": "node scripts/smoke/workbench.mjs",
     "smoke:workbench-live": "node scripts/smoke/workbench-live.mjs",
+    "smoke:workbench-e2e": "python3 scripts/smoke/workbench-e2e.py",
     "smoke:billing": "node scripts/smoke/billing.mjs",
     "smoke:openclaw-config": "node scripts/smoke/openclaw-config.mjs",
     "smoke:render-style": "tsx scripts/smoke/render-style.ts",
