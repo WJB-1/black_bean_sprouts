@@ -126,20 +126,34 @@ MCP 包安装在 `.claude-runtime/mcp/`，输出建议写到 `.tmp/docx-mcp-outp
 
 ## 启动开发服务器
 
-### 方式一：一键脚本（推荐）
+### 方式一：跨平台一键脚本（推荐）
 
 ```bash
-# PowerShell
-.\start-workbench.ps1
+# Windows / Linux / macOS
+npm run workbench:start
 
 # 查看状态
-.\status-workbench.ps1
+npm run workbench:status
 
 # 停止
+npm run workbench:stop
+```
+
+这个脚本由 Node.js 实现，不依赖 PowerShell。它会同时启动：
+
+- 后端：`http://localhost:3000/api`
+- 前端：`http://localhost:5173/workbench`
+- 日志：`.tmp/workbench-dev/logs/`
+
+Windows 用户也可以继续使用兼容包装：
+
+```powershell
+.\start-workbench.ps1
+.\status-workbench.ps1
 .\stop-workbench.ps1
 ```
 
-### 方式二：手动启动
+### 方式二：手动启动（备选）
 
 ```bash
 # 终端 1：启动后端

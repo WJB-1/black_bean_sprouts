@@ -130,45 +130,44 @@ WECHAT_PAY_NOTIFY_URL=http://localhost:3000/api/billing/providers/wechatpay/noti
 
 ## 3. 本地启动
 
-推荐直接用一键脚本：
+推荐直接用跨平台 Node 脚本，Windows / Linux / macOS 都一致：
 
-```powershell
-.\start-workbench.ps1
-```
-
-如果你刚刚已经构建过，也可以跳过重复构建：
-
-```powershell
-.\start-workbench.ps1 -SkipBuild
+```bash
+npm run workbench:start
 ```
 
 查看状态：
 
-```powershell
-.\status-workbench.ps1
+```bash
+npm run workbench:status
 ```
 
 关闭：
 
-```powershell
-.\stop-workbench.ps1
+```bash
+npm run workbench:stop
 ```
 
-也可以用 `pnpm` 包装命令：
+重启：
 
-```powershell
-pnpm run workbench:start
-pnpm run workbench:status
-pnpm run workbench:stop
+```bash
+npm run workbench:restart
 ```
 
 脚本行为：
 
-- 自动读取根目录 `.env`
-- 若存在 `SILICONFLOW_API_KEY`，默认切到 `siliconflow-direct`
-- 默认执行一次 `pnpm build`
-- 后台拉起后端 `3000` 和前端 `5173`
+- 自动读取根目录 `.env.example` 和 `.env`
+- 后台拉起后端 `3000` 和前端 Vite `5173`
 - 日志写到 `.tmp/workbench-dev/logs`
+- PID 状态写到 `.tmp/workbench-dev/state`
+
+Windows 用户也可以继续用兼容包装：
+
+```powershell
+.\start-workbench.ps1
+.\status-workbench.ps1
+.\stop-workbench.ps1
+```
 
 ## 4. 手动启动
 

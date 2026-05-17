@@ -1,1 +1,1 @@
-& "$PSScriptRoot\scripts\workbench-dev.ps1" start @args
+node "$PSScriptRoot\scripts\workbench-dev.mjs" start @args
