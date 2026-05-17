@@ -438,7 +438,6 @@ packages/server/src/storage/
   storage-service.ts  ← 新建
 packages/server/src/routes/document/render.ts    ← 修改，改为异步入队
 packages/server/src/routes/render-job/index.ts   ← 新建，查询状态和下载
-docker-compose.yml    ← 修改，增加 Redis 和 MinIO 服务
 .env.example          ← 修改，增加相关配置项
 ```
 
@@ -451,7 +450,7 @@ packages/xiaolongxia-kernel/src/
 
 **核心任务**（按顺序）：
 
-1. `docker-compose.yml` 增加 Redis（BullMQ 依赖）和 MinIO 服务。
+1. 明确 Redis（BullMQ 依赖）和 S3-compatible 存储的环境变量配置，不在本仓库维护 Docker Compose。
 
 2. 实现 `StorageService`：
    ```ts
@@ -488,7 +487,7 @@ type RenderJobCreatedResponse = {
 ```
 
 **验收标准**：
-- [ ] `docker-compose up -d` 后 Redis 和 MinIO 可连通
+- [ ] 配置外部 Redis 和 S3-compatible 存储后服务可连通
 - [ ] `POST /render` 立即返回 `jobId`，不阻塞
 - [ ] Worker 完成后 MinIO 中有对应文件，RenderJob.status 为 COMPLETED
 - [ ] 普通用户无法下载他人的渲染结果（返回 403）
@@ -544,13 +543,12 @@ packages/xiaolongxia-kernel/src/
 .github/workflows/ci.yml    ← 新建
 scripts/smoke/              ← 补充各专项 smoke 脚本
 package.json                ← 补充 smoke:* 命令
-docker-compose.yml          ← 确保 CI 可以 docker-compose up
 docs/SMOKE_ASSESSMENT.md    ← 只记录真实执行结果
 ```
 
 **核心任务**（按顺序）：
 
-1. 建立 CI workflow：push/PR 时自动执行 `docker-compose up -d`（PostgreSQL/Redis/MinIO）→ `pnpm install` → `pnpm typecheck` → `pnpm build` → `pnpm smoke`。
+1. 建立 CI workflow：push/PR 时自动执行 `pnpm install` → `pnpm typecheck` → `pnpm build` → 离线 smoke；需要真实基础设施的 smoke 单独作为可选 job。
 
 2. 补充以下 smoke 脚本（随对应工作线完成后逐步添加）：
 

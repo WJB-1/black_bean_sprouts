@@ -50,7 +50,6 @@ black-bean-sprouts/
 │   ├── FRONTEND_API_HANDOFF.md      # 前端 API 接入详细文档
 │   ├── FRONTEND_BILLING_HANDOFF.md  # 支付/订阅前端接入文档
 │   └── RUN_WORKBENCH.md             # 工作台启动与配置指南
-├── docker-compose.yml          # Postgres + Redis + MinIO
 └── package.json                # 根 package.json
 ```
 
@@ -62,7 +61,7 @@ black-bean-sprouts/
 
 - **Node.js** >= 20.0.0（推荐 22+）
 - **Corepack**（Node 自带；本仓库通过 `packageManager` 固定 pnpm）
-- Docker 只用于可选的本地 Postgres / Redis / MinIO，不是 AI/Claude 开发链路的必需项。
+- 本仓库不再提供 Docker 启动入口；需要数据库或队列时，请连接你本机或团队环境已有的 Postgres / Redis / S3-compatible 存储。
 
 ### 1. 首次本地初始化
 
@@ -102,7 +101,7 @@ DEEPSEEK_API_KEY=你的 DeepSeek API Key
 
 ### 3. 可选本地基础设施
 
-如果要使用真实数据库、异步渲染队列和对象存储，可自行启动 Postgres / Redis / MinIO 并执行：
+如果要使用真实数据库、异步渲染队列和对象存储，请先准备 Postgres / Redis / S3-compatible 存储，并在 `.env` 中配置连接信息，然后执行：
 
 ```bash
 pnpm db:push

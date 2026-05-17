@@ -14,10 +14,9 @@ pnpm install
 pnpm db:generate
 ```
 
-如果你要测试登录、账单、文档持久化，先把本地基础设施拉起来：
+如果你要测试登录、账单、文档持久化，需要先准备可访问的 PostgreSQL，并在 `.env` 中配置连接信息：
 
 ```powershell
-docker compose up -d postgres redis minio
 pnpm db:push
 ```
 

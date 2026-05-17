@@ -66,44 +66,34 @@ doc-engine ←── server ←── xiaolongxia-kernel
 ### 前置依赖
 - Node.js >= 20
 - pnpm >= 9
-- Docker & Docker Compose（用于 Postgres / Redis / MinIO）
 
 ### 一键启动（推荐）
 
 ```bash
-# 启动全部：Postgres + Redis + MinIO + 后端 (:3000) + 前端 (:5173)
-./dev.sh start
+# 启动后端 (:3000) + 前端 (:5173)
+npm run workbench:start
 
 # 查看状态 / 停止 / 重启
-./dev.sh status
-./dev.sh stop
-./dev.sh restart
+npm run workbench:status
+npm run workbench:stop
+npm run workbench:restart
 ```
 
-`dev.sh` 会自动：
-1. 启动 docker-compose（PostgreSQL 16、Redis 7、MinIO）
-2. 等待 PostgreSQL 就绪
-3. 若不存在则创建 `.env`
-4. `prisma db push` 同步数据库结构
-5. 构建所有 workspace 包
-6. 启动后端 server 与 Vite dev server
+`npm run workbench:start` 会自动读取 `.env.example` 和 `.env`，并启动后端 server 与 Vite dev server。
 
 ### 手动启动（备选）
 
 ```bash
-# 1. 基础设施
-docker compose up -d
-
-# 2. 安装依赖
+# 1. 安装依赖
 pnpm install
 
-# 3. 数据库
+# 2. 数据库：如需登录、保存文档、支付等完整功能，先准备可访问的 PostgreSQL
 pnpm db:push
 
-# 4. 构建
+# 3. 构建
 pnpm build
 
-# 5. 开发模式（并行启动所有包的 dev）
+# 4. 开发模式（并行启动所有包的 dev）
 pnpm dev
 ```
 

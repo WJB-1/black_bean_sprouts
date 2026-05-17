@@ -49,7 +49,6 @@ black_bean_sprouts/
 │   ├── dev/                  # 本地安装、初始化脚本
 │   └── smoke/                # smoke 测试脚本
 ├── docs/                     # 说明文档
-├── docker-compose.yml        # Postgres / Redis / MinIO
 └── package.json              # monorepo 根脚本
 ```
 
@@ -806,16 +805,15 @@ CLAUDE_CODE_EFFORT_LEVEL=max
 DEEPSEEK_API_KEY=你的 key
 ```
 
-本地基础设施可选：
+本地基础设施可选，但仓库不再提供 Docker 启动入口。需要完整产品功能时，请先准备可访问的 Postgres；需要异步渲染时，再准备 Redis 和 S3-compatible 存储，并在 `.env` 中配置连接信息。
 
 ```bash
-docker compose up -d postgres redis minio
 pnpm db:push
 ```
 
 说明：
 
-- Workbench AI/Claude 主链不强制依赖 Docker。
+- Workbench AI/Claude 主链不依赖 Docker。
 - 登录、后台、保存文档、支付、异步渲染等功能依赖数据库或基础设施。
 
 ### 9.3 当前推荐启动方式
@@ -1046,7 +1044,7 @@ Workbench 粘贴生成和直接 Word 可在无数据库时运行较多功能，�
 
 建议文档统一表述：
 
-> AI/Workbench 本地调试不强制 Docker；完整产品功能需要 Postgres，异步渲染还需要 Redis 和 MinIO。
+> AI/Workbench 本地调试不需要 Docker；完整产品功能需要 Postgres，异步渲染还需要 Redis 和 S3-compatible 存储。
 
 ### 12.5 Skill 体系有两套概念
 
@@ -1096,4 +1094,3 @@ Workbench 粘贴生成和直接 Word 可在无数据库时运行较多功能，�
 > 所以“后端架构没变”和“改成 bash 使用 Claude”这两句话都对，只是说的是不同层级。前者说 Web/API/adapter 架构，后者说 AI 实际执行层。
 >
 > 当前建议继续用 Claude Code 作为主链，因为它对 Skill、MCP、直接 Word 文件工作流更顺。OpenClaw 先保留为可选 provider，等外部仓库、CLI/API、Skill/MCP、smoke 都稳定后再考虑切回默认。
-

@@ -8,7 +8,7 @@
 - Claude HOME 必须指向 `.claude-runtime/home/`。
 - DOCX MCP 必须安装在 `.claude-runtime/mcp/`。
 - API key 只放本地 `.env`，不要提交。
-- Docker 不是 Workbench AI/Claude 链路的必需项，调试这个链路时先不要引入 Docker 变量。
+- Docker 不是 Workbench AI/Claude 链路的一部分，调试这个链路时不要引入 Docker 变量。
 
 ## 必须使用的局部环境
 
